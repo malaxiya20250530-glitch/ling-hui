@@ -1,0 +1,24 @@
+# Unity
+unity_client/
+[Uu]nity/[Ll]ibrary/
+[Uu]nity/[Tt]emp/
+[Uu]nity/[Oo]bj/
+[Uu]nity/[Bb]uild/
+
+# Android
+android_app/.gradle/
+android_app/build/
+android_app/app/build/
+android_app/local.properties
+*.iml
+.idea/
+.gradle/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+*.jks
+*.keystore
+!gradle/wrapper/gradle-wrapper.jar
