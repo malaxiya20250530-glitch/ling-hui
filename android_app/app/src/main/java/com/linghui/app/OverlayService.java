@@ -18,6 +18,9 @@ import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.graphics.drawable.GradientDrawable;
+import android.view.animation.AlphaAnimation;
+import android.view.animation.Animation;
 
 import androidx.core.app.NotificationCompat;
 
@@ -120,23 +123,32 @@ public class OverlayService extends Service {
         charParams.gravity = Gravity.CENTER;
         overlayRoot.addView((View) charView, charParams);
 
-        // 对话气泡
+        // 对话气泡 — 圆角渐变 + 阴影 + 淡入动画
         chatBubble = new LinearLayout(this);
         chatBubble.setOrientation(LinearLayout.VERTICAL);
-        chatBubble.setBackgroundColor(0xE0000000);
-        chatBubble.setPadding(dpToPx(12), dpToPx(8), dpToPx(12), dpToPx(8));
+        // 圆角渐变背景
+        GradientDrawable bg = new GradientDrawable();
+        bg.setShape(GradientDrawable.RECTANGLE);
+        bg.setCornerRadius(dpToPx(16));
+        bg.setColors(new int[]{0xF07050A0, 0xF0404080}); // 紫→深紫
+        bg.setStroke(dpToPx(1), 0x80FFFFFF); // 半透白边框
+        chatBubble.setBackground(bg);
+        chatBubble.setPadding(dpToPx(14), dpToPx(10), dpToPx(14), dpToPx(10));
+        chatBubble.setElevation(dpToPx(6)); // 阴影
         chatText = new TextView(this);
         chatText.setTextColor(0xFFFFFFFF);
-        chatText.setTextSize(14);
-        chatText.setMaxWidth(dpToPx(200));
-        chatText.setText("你好呀~ 我是灵绘 ✨");
+        chatText.setTextSize(13);
+        chatText.setLineSpacing(dpToPx(2), 1f);
+        chatText.setMaxWidth(dpToPx(220));
+        chatText.setShadowLayer(1f, 0f, 1f, 0x40000000); // 文字阴影
+        chatText.setText("✨ 你好呀~ 我是灵绘");
         chatBubble.addView(chatText);
         chatBubble.setVisibility(View.GONE);
         FrameLayout.LayoutParams bubbleParams = new FrameLayout.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT);
         bubbleParams.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        bubbleParams.topMargin = charSize + dpToPx(8);
+        bubbleParams.topMargin = charSize + dpToPx(6);
         overlayRoot.addView(chatBubble, bubbleParams);
 
         // 窗口参数
@@ -223,14 +235,27 @@ public class OverlayService extends Service {
     }
 
     private void showBubble(String text) {
-        chatText.setText(text);
+        chatText.setText("✨ " + text);
         chatBubble.setVisibility(View.VISIBLE);
+        // 淡入动画
+        AlphaAnimation fadeIn = new AlphaAnimation(0f, 1f);
+        fadeIn.setDuration(250);
+        chatBubble.startAnimation(fadeIn);
         bubbleVisible = true;
-        overlayRoot.postDelayed(this::hideBubble, 5000);
+        overlayRoot.postDelayed(this::hideBubble, 6000);
     }
 
     private void hideBubble() {
-        chatBubble.setVisibility(View.GONE);
+        AlphaAnimation fadeOut = new AlphaAnimation(1f, 0f);
+        fadeOut.setDuration(200);
+        fadeOut.setAnimationListener(new Animation.AnimationListener() {
+            @Override public void onAnimationStart(Animation a) {}
+            @Override public void onAnimationEnd(Animation a) {
+                chatBubble.setVisibility(View.GONE);
+            }
+            @Override public void onAnimationRepeat(Animation a) {}
+        });
+        chatBubble.startAnimation(fadeOut);
         bubbleVisible = false;
         charView.onIdle();
     }
