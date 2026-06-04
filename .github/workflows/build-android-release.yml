@@ -102,34 +102,49 @@ jobs:
         working-directory: android_app
         run: gradle assembleRelease --no-daemon
 
-      - name: 签名 APK
-        uses: r0adkll/sign-android-release@v1
-        id: sign_app
-        with:
-          releaseDirectory: android_app/app/build/outputs/apk/release
-          signingKeyBase64: ${{ secrets.KEYSTORE_BASE64 }}
-          alias: ${{ secrets.KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-        continue-on-error: true
-
-      - name: 重命名已签名 APK
-        if: steps.sign_app.outputs.signedReleaseFile != ''
+      - name: 签名 Release APK
+        if: env.KEYSTORE_BASE64 != ''
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          cp "${{ steps.sign_app.outputs.signedReleaseFile }}" \
-             ${{ steps.version.outputs.apk_name }}.apk
+          UNSIGNED=android_app/app/build/outputs/apk/release/app-release-unsigned.apk
+          SIGNED=${{ steps.version.outputs.apk_name }}.apk
+          KEYSTORE_FILE=linghui.jks
 
-      - name: 重命名未签名 APK（签名失败回退）
-        if: steps.sign_app.outputs.signedReleaseFile == ''
+          echo "$KEYSTORE_BASE64" | base64 -d > $KEYSTORE_FILE
+
+          $ANDROID_HOME/build-tools/35.0.0/apksigner sign \
+            --ks $KEYSTORE_FILE \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "pass:$KEYSTORE_PASSWORD" \
+            --key-pass "pass:$KEY_PASSWORD" \
+            --out $SIGNED \
+            $UNSIGNED
+
+          rm -f $KEYSTORE_FILE
+          echo "已签名: $SIGNED"
+
+      - name: 上传 Release APK（已签名）
+        if: env.KEYSTORE_BASE64 != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.apk_name }}
+          path: ${{ steps.version.outputs.apk_name }}.apk
+          retention-days: 90
+
+      - name: 上传 Release APK（未签名）
+        if: env.KEYSTORE_BASE64 == ''
         run: |
           cp android_app/app/build/outputs/apk/release/app-release-unsigned.apk \
              ${{ steps.version.outputs.apk_name }}-unsigned.apk
 
-      - name: 上传 Release APK
+      - name: 上传未签名 APK
+        if: env.KEYSTORE_BASE64 == ''
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.version.outputs.apk_name }}
-          path: |
-            ${{ steps.version.outputs.apk_name }}.apk
-            ${{ steps.version.outputs.apk_name }}-unsigned.apk
+          name: ${{ steps.version.outputs.apk_name }}-unsigned
+          path: ${{ steps.version.outputs.apk_name }}-unsigned.apk
           retention-days: 90
