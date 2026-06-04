@@ -60,6 +60,22 @@ public class LingHuiGLView extends GLSurfaceView implements ICharacterView {
         private float pulseScale = 1.0f;
         private long moodStartTime;
 
+        // 12色调色板 + 定时渐变
+        private static final float[][] PALETTE = {
+            {1.00f, 0.45f, 0.45f}, {1.00f, 0.65f, 0.30f},
+            {1.00f, 0.88f, 0.35f}, {0.55f, 0.90f, 0.45f},
+            {0.35f, 0.80f, 0.75f}, {0.35f, 0.65f, 1.00f},
+            {0.50f, 0.45f, 1.00f}, {0.85f, 0.45f, 1.00f},
+            {1.00f, 0.55f, 0.80f}, {1.00f, 0.75f, 0.70f},
+            {0.70f, 0.70f, 0.80f}, {0.95f, 0.85f, 0.70f},
+        };
+        private float[] currentColor = PALETTE[0];
+        private float[] targetColor  = PALETTE[0];
+        private long lastColorChange;
+        private static final long COLOR_INTERVAL_MS = 5 * 60 * 1000;
+        private static final float COLOR_BLEND_SPEED = 0.012f;
+        private final java.util.Random rng = new java.util.Random();
+
         @Override
         public void onSurfaceCreated(GL10 gl, EGLConfig config) {
             GLES20.glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
@@ -173,10 +189,7 @@ public class LingHuiGLView extends GLSurfaceView implements ICharacterView {
             return currentColor;
         }
 
-        void setMood(Mood m) { this.mood = m; this.moodStartTime = System.currentTimeMillis();
-            lastColorChange = System.currentTimeMillis();
-            currentColor = PALETTE[rng.nextInt(PALETTE.length)];
-            targetColor = currentColor; }
+        void setMood(Mood m) { this.mood = m; this.moodStartTime = System.currentTimeMillis(); }
 
         // ---------- 着色器 ----------
         private void setupShaders() {
