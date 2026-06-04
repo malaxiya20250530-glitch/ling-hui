@@ -51,15 +51,26 @@ jobs:
         with:
           gradle-version: "8.5"
 
+      - name: 设置构建版本号
+        id: version
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "apk_name=LingHui-v${{ github.run_number }}-${SHORT_SHA}-debug" >> $GITHUB_OUTPUT
+
       - name: 编译 Debug APK
         working-directory: android_app
         run: gradle assembleDebug --no-daemon
 
+      - name: 重命名 APK
+        run: |
+          cp android_app/app/build/outputs/apk/debug/app-debug.apk \
+             ${{ steps.version.outputs.apk_name }}.apk
+
       - name: 上传 Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: LingHui-debug.apk
-          path: android_app/app/build/outputs/apk/debug/app-debug.apk
+          name: ${{ steps.version.outputs.apk_name }}
+          path: ${{ steps.version.outputs.apk_name }}.apk
           retention-days: 30
 
   # ── Release APK ──
@@ -81,6 +92,12 @@ jobs:
         with:
           gradle-version: "8.5"
 
+      - name: 设置构建版本号
+        id: version
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "apk_name=LingHui-v${{ github.run_number }}-${SHORT_SHA}-release" >> $GITHUB_OUTPUT
+
       - name: 编译 Release APK
         working-directory: android_app
         run: gradle assembleRelease --no-daemon
@@ -96,11 +113,23 @@ jobs:
           keyPassword: ${{ secrets.KEY_PASSWORD }}
         continue-on-error: true
 
+      - name: 重命名已签名 APK
+        if: steps.sign_app.outputs.signedReleaseFile != ''
+        run: |
+          cp "${{ steps.sign_app.outputs.signedReleaseFile }}" \
+             ${{ steps.version.outputs.apk_name }}.apk
+
+      - name: 重命名未签名 APK（签名失败回退）
+        if: steps.sign_app.outputs.signedReleaseFile == ''
+        run: |
+          cp android_app/app/build/outputs/apk/release/app-release-unsigned.apk \
+             ${{ steps.version.outputs.apk_name }}-unsigned.apk
+
       - name: 上传 Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: LingHui-release.apk
+          name: ${{ steps.version.outputs.apk_name }}
           path: |
-            ${{ steps.sign_app.outputs.signedReleaseFile }}
-            android_app/app/build/outputs/apk/release/app-release-unsigned.apk
+            ${{ steps.version.outputs.apk_name }}.apk
+            ${{ steps.version.outputs.apk_name }}-unsigned.apk
           retention-days: 90
