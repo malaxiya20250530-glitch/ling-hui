@@ -1,0 +1,6 @@
+{
+  "api_keys": {
+    "openai": "sk-your-key-here",
+    "openai_org": ""
+  }
+}

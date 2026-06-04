@@ -1,0 +1,36 @@
+{
+  "_comment": "灵绘 AI 管线配置 — 复制为 config.local.json 填入真实密钥",
+  "asr": {
+    "provider": "openai",
+    "model": "whisper-1",
+    "language": "zh",
+    "sample_rate": 16000,
+    "channels": 1
+  },
+  "llm": {
+    "provider": "openai",
+    "base_url": "http://localhost:8800",
+    "model": "gpt-4o-mini",
+    "max_tokens": 512,
+    "temperature": 0.8,
+    "system_prompt_file": "personality/system_prompt.txt"
+  },
+  "tts": {
+    "provider": "openai",
+    "model": "tts-1",
+    "voice": "nova",
+    "speed": 1.0,
+    "format": "mp3"
+  },
+  "character": {
+    "name": "灵绘",
+    "awake_word": "灵绘",
+    "max_memory_turns": 20,
+    "reply_max_chars": 120
+  },
+  "pipeline": {
+    "mode": "push_to_talk",
+    "silence_timeout_sec": 2.0,
+    "max_record_sec": 15
+  }
+}

@@ -22,3 +22,12 @@ Thumbs.db
 *.jks
 *.keystore
 !gradle/wrapper/gradle-wrapper.jar
+
+# 灵绘 AI
+config/config.local.json
+*.mp3
+*.wav
+/tmp/
+logs/
+__pycache__/
+*.egg-info/
