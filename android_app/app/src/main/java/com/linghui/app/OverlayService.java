@@ -90,6 +90,7 @@ public class OverlayService extends Service {
     // ---------- 悬浮窗创建（双模式）----------
     private void createOverlay() {
         overlayRoot = new FrameLayout(this);
+        overlayRoot.setBackgroundColor(0x00000000);  // 透明
 
         // 优先尝试 Unity 渲染
         UnityPlayerView unityView = new UnityPlayerView(this);
@@ -105,7 +106,7 @@ public class OverlayService extends Service {
             Log.i(TAG, "🔵 使用 OpenGL 渲染模式（Unity 未集成）");
         }
 
-        int charSize = dpToPx(140);
+        int charSize = dpToPx(100);
         FrameLayout.LayoutParams charParams = new FrameLayout.LayoutParams(charSize, charSize);
         charParams.gravity = Gravity.CENTER;
         overlayRoot.addView((View) charView, charParams);
