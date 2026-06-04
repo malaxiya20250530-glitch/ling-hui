@@ -54,7 +54,12 @@ public class OverlayService extends Service {
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
 
         createNotificationChannel();
-        startForeground(NOTIFY_ID, buildNotification());
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(NOTIFY_ID, buildNotification(),
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+        } else {
+            startForeground(NOTIFY_ID, buildNotification());
+        }
 
         createOverlay();
     }
