@@ -90,16 +90,14 @@ public class AiEngine {
             ? llmBaseUrl + "/v1/chat/completions"
             : llmBaseUrl + "/api/chat";
 
-        Request request = new Request.Builder()
+        Request.Builder builder = new Request.Builder()
             .url(endpoint)
             .post(RequestBody.create(gson.toJson(requestBody), JSON))
-            .header("Content-Type", "application/json")
-            .apply(b -> {
-                if (useOpenAi && !openAiKey.isEmpty()) {
-                    b.header("Authorization", "Bearer " + openAiKey);
-                }
-            })
-            .build();
+            .header("Content-Type", "application/json");
+        if (useOpenAi && !openAiKey.isEmpty()) {
+            builder.header("Authorization", "Bearer " + openAiKey);
+        }
+        Request request = builder.build();
 
         httpClient.newCall(request).enqueue(new Callback() {
             @Override public void onFailure(Call call, IOException e) {
