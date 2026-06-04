@@ -75,8 +75,8 @@ public class AiEngine {
     private static final int MAX_HISTORY = 10;
 
     // LLM 后端配置
-    private String llmBaseUrl = "http://localhost:11434";
-    private String llmModel = "qwen2.5:3b";
+    private String llmBaseUrl = "http://localhost:8800";
+    private String llmModel = "codex";
     private String openAiKey = "";
     private boolean useOpenAi = false;
 
