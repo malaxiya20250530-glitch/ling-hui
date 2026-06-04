@@ -45,6 +45,15 @@ public class OverlayService extends Service {
     // 对话气泡
     private boolean bubbleVisible;
 
+    // 自动漫游
+    private android.os.Handler roamHandler;
+    private WindowManager.LayoutParams wmParams;
+    private float roamTime;
+    private float roamSpeedX = 0.8f, roamSpeedY = 1.1f;
+    private float roamAmpX = 60f, roamAmpY = 50f;
+    private boolean isRoaming = true;
+    private int screenW, screenH, charSize;
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -106,7 +115,7 @@ public class OverlayService extends Service {
             Log.i(TAG, "🔵 使用 OpenGL 渲染模式（Unity 未集成）");
         }
 
-        int charSize = dpToPx(100);
+        charSize = dpToPx(100);
         FrameLayout.LayoutParams charParams = new FrameLayout.LayoutParams(charSize, charSize);
         charParams.gravity = Gravity.CENTER;
         overlayRoot.addView((View) charView, charParams);
@@ -131,7 +140,7 @@ public class OverlayService extends Service {
         overlayRoot.addView(chatBubble, bubbleParams);
 
         // 窗口参数
-        WindowManager.LayoutParams wmParams = new WindowManager.LayoutParams(
+        wmParams = new WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
@@ -147,11 +156,14 @@ public class OverlayService extends Service {
         windowManager.getDefaultDisplay().getMetrics(dm);
         wmParams.x = dm.widthPixels / 2 - charSize / 2;
         wmParams.y = dm.heightPixels / 3;
+        screenW = dm.widthPixels;
+        screenH = dm.heightPixels;
 
         overlayRoot.setOnTouchListener(new OverlayTouchListener(wmParams));
         overlayRoot.setOnClickListener(v -> onOverlayClick());
 
         windowManager.addView(overlayRoot, wmParams);
+        startRoaming();
     }
 
     // ---------- 拖拽 ----------
@@ -166,6 +178,8 @@ public class OverlayService extends Service {
                     initialX = params.x; initialY = params.y;
                     initialTouchX = event.getRawX(); initialTouchY = event.getRawY();
                     isDragging = false;
+                    // 拖拽时暂停漫游
+                    isRoaming = false;
                     return true;
                 case MotionEvent.ACTION_MOVE:
                     float dx = event.getRawX() - initialTouchX;
@@ -181,6 +195,8 @@ public class OverlayService extends Service {
                     return true;
                 case MotionEvent.ACTION_UP:
                     if (!isDragging) v.performClick();
+                    // 松手后恢复漫游
+                    isRoaming = true;
                     return true;
             }
             return false;
@@ -224,6 +240,39 @@ public class OverlayService extends Service {
         return (int) (dp * getResources().getDisplayMetrics().density + 0.5f);
     }
 
+    // ---------- 不规则漫游 ----------
+    private void startRoaming() {
+        roamHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        roamTime = 0f;
+        roamHandler.post(roamRunnable);
+    }
+
+    private Runnable roamRunnable = new Runnable() {
+        @Override public void run() {
+            if (!isRoaming || wmParams == null || overlayRoot == null) {
+                if (roamHandler != null) roamHandler.postDelayed(this, 1000);
+                return;
+            }
+            roamTime += 0.05f;
+            // 叠加两个正弦波产生不规则运动
+            float dx = (float)(Math.sin(roamTime * roamSpeedX) * roamAmpX
+                             + Math.cos(roamTime * 0.37f) * roamAmpX * 0.5f);
+            float dy = (float)(Math.cos(roamTime * roamSpeedY) * roamAmpY
+                             + Math.sin(roamTime * 0.53f) * roamAmpY * 0.5f);
+
+            int newX = Math.max(0, Math.min(screenW - charSize, wmParams.x + (int)dx));
+            int newY = Math.max(0, Math.min(screenH - charSize, wmParams.y + (int)dy));
+            wmParams.x = newX;
+            wmParams.y = newY;
+
+            try {
+                windowManager.updateViewLayout(overlayRoot, wmParams);
+            } catch (Exception ignored) {}
+
+            if (roamHandler != null) roamHandler.postDelayed(this, 50); // 20fps
+        }
+    };
+
     @Override public IBinder onBind(Intent intent) { return null; }
 
     @Override
@@ -233,6 +282,7 @@ public class OverlayService extends Service {
             ((UnityPlayerView) charView).pause();
             ((UnityPlayerView) charView).destroy();
         }
+        if (roamHandler != null) { roamHandler.removeCallbacksAndMessages(null); roamHandler = null; }
         if (overlayRoot != null) windowManager.removeView(overlayRoot);
         if (aiEngine != null) aiEngine.shutdown();
         Log.i(TAG, "灵绘悬浮窗服务已停止");
