@@ -70,6 +70,9 @@ public class LingHuiGLView extends GLSurfaceView implements ICharacterView {
             setupShaders();
             generateSphere(0.45f, 36, 18);
             moodStartTime = System.currentTimeMillis();
+            lastColorChange = System.currentTimeMillis();
+            currentColor = PALETTE[rng.nextInt(PALETTE.length)];
+            targetColor = currentColor;
         }
 
         @Override
@@ -87,6 +90,17 @@ public class LingHuiGLView extends GLSurfaceView implements ICharacterView {
             // 旋转动画
             rotationAngle += 1.2f;
             if (rotationAngle > 360f) rotationAngle -= 360f;
+
+            // 颜色渐变
+            long now = System.currentTimeMillis();
+            if (now - lastColorChange > COLOR_INTERVAL_MS) {
+                targetColor = PALETTE[rng.nextInt(PALETTE.length)];
+                lastColorChange = now;
+            }
+            // 平滑插值
+            for (int ci = 0; ci < 3; ci++) {
+                currentColor[ci] += (targetColor[ci] - currentColor[ci]) * COLOR_BLEND_SPEED;
+            }
 
             // 心情动画
             long elapsed = System.currentTimeMillis() - moodStartTime;
@@ -139,16 +153,30 @@ public class LingHuiGLView extends GLSurfaceView implements ICharacterView {
             GLES20.glDisableVertexAttribArray(aNormal);
         }
 
-        // ---------- 心情颜色 ----------
+        // ---------- 颜色（12色调色板自动轮换）----------
         private float[] getMoodColor() {
-            switch (mood) {
-                case EXCITED: return new float[]{1.0f, 0.6f, 0.8f};  // 粉色
-                case HAPPY:   return new float[]{0.5f, 0.9f, 1.0f};  // 天蓝
-                default:      return new float[]{0.7f, 0.7f, 1.0f};  // 淡紫
+            // 情绪叠加：EXCITED 偏粉，HAPPY 偏亮
+            if (mood == Mood.EXCITED) {
+                return new float[]{
+                    Math.min(1f, currentColor[0] + 0.2f),
+                    currentColor[1],
+                    Math.min(1f, currentColor[2] + 0.15f)
+                };
             }
+            if (mood == Mood.HAPPY) {
+                return new float[]{
+                    currentColor[0],
+                    Math.min(1f, currentColor[1] + 0.1f),
+                    Math.min(1f, currentColor[2] + 0.1f)
+                };
+            }
+            return currentColor;
         }
 
-        void setMood(Mood m) { this.mood = m; this.moodStartTime = System.currentTimeMillis(); }
+        void setMood(Mood m) { this.mood = m; this.moodStartTime = System.currentTimeMillis();
+            lastColorChange = System.currentTimeMillis();
+            currentColor = PALETTE[rng.nextInt(PALETTE.length)];
+            targetColor = currentColor; }
 
         // ---------- 着色器 ----------
         private void setupShaders() {
