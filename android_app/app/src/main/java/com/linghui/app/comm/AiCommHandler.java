@@ -102,7 +102,7 @@ public class AiCommHandler {
             if (code != 200) return;
 
             java.io.InputStream is = conn.getInputStream();
-            java.util.Scanner s = new java.util.Scanner(is, "UTF-8").useDelimiter("\A");
+            java.util.Scanner s = new java.util.Scanner(is, "UTF-8").useDelimiter("\\A");
             String body = s.hasNext() ? s.next() : "{}";
             s.close();
             conn.disconnect();

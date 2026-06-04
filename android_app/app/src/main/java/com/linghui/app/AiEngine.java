@@ -336,7 +336,7 @@ public class AiEngine {
         if (isDetectingWakeWord) return;
         isDetectingWakeWord = true;
         this.wakeWordCb = callback;
-        Log.i(TAG, "唤醒词检测启动: "" + wakeWord + """);
+        Log.i(TAG, "唤醒词检测启动: \"" + wakeWord + "\"");
         runWakeWordLoop();
     }
 
