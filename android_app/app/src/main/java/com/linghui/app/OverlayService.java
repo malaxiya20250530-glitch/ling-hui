@@ -16,13 +16,12 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.core.app.NotificationCompat;
 
-/** 悬浮窗前台服务：管理桌面精灵的显示、拖拽和交互 */
+/** 悬浮窗前台服务：管理模式(Unity/OpenGL)的显示、拖拽和交互 */
 public class OverlayService extends Service {
 
     private static final String TAG = "OverlayService";
@@ -31,12 +30,13 @@ public class OverlayService extends Service {
 
     private WindowManager windowManager;
     private FrameLayout overlayRoot;
-    private LingHuiGLView glView;
+    private ICharacterView charView;   // 统一接口 —— Unity 或 GL
+    private boolean useUnity;          // 当前渲染模式
     private LinearLayout chatBubble;
     private TextView chatText;
     private AiEngine aiEngine;
 
-    // 拖拽相关
+    // 拖拽
     private int initialX, initialY;
     private float initialTouchX, initialTouchY;
     private boolean isDragging;
@@ -65,8 +65,7 @@ public class OverlayService extends Service {
             NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID, "灵绘精灵", NotificationManager.IMPORTANCE_LOW);
             channel.setDescription("灵绘虚拟精灵运行中");
-            NotificationManager nm = getSystemService(NotificationManager.class);
-            nm.createNotificationChannel(channel);
+            getSystemService(NotificationManager.class).createNotificationChannel(channel);
         }
     }
 
@@ -83,16 +82,28 @@ public class OverlayService extends Service {
             .build();
     }
 
-    // ---------- 悬浮窗创建 ----------
+    // ---------- 悬浮窗创建（双模式）----------
     private void createOverlay() {
         overlayRoot = new FrameLayout(this);
 
-        // OpenGL 3D 角色视图
-        glView = new LingHuiGLView(this);
-        int size = dpToPx(120);
-        FrameLayout.LayoutParams glParams = new FrameLayout.LayoutParams(size, size);
-        glParams.gravity = Gravity.CENTER;
-        overlayRoot.addView(glView, glParams);
+        // 优先尝试 Unity 渲染
+        UnityPlayerView unityView = new UnityPlayerView(this);
+        if (unityView.isUnityAvailable()) {
+            charView = unityView;
+            useUnity = true;
+            Log.i(TAG, "🎮 使用 Unity 3D 渲染模式");
+        } else {
+            // 降级到 OpenGL 球体
+            LingHuiGLView glView = new LingHuiGLView(this);
+            charView = glView;
+            useUnity = false;
+            Log.i(TAG, "🔵 使用 OpenGL 渲染模式（Unity 未集成）");
+        }
+
+        int charSize = dpToPx(140);
+        FrameLayout.LayoutParams charParams = new FrameLayout.LayoutParams(charSize, charSize);
+        charParams.gravity = Gravity.CENTER;
+        overlayRoot.addView((View) charView, charParams);
 
         // 对话气泡
         chatBubble = new LinearLayout(this);
@@ -110,7 +121,7 @@ public class OverlayService extends Service {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT);
         bubbleParams.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        bubbleParams.topMargin = size + dpToPx(8);
+        bubbleParams.topMargin = charSize + dpToPx(8);
         overlayRoot.addView(chatBubble, bubbleParams);
 
         // 窗口参数
@@ -128,7 +139,7 @@ public class OverlayService extends Service {
 
         DisplayMetrics dm = new DisplayMetrics();
         windowManager.getDefaultDisplay().getMetrics(dm);
-        wmParams.x = dm.widthPixels / 2 - size / 2;
+        wmParams.x = dm.widthPixels / 2 - charSize / 2;
         wmParams.y = dm.heightPixels / 3;
 
         overlayRoot.setOnTouchListener(new OverlayTouchListener(wmParams));
@@ -137,20 +148,17 @@ public class OverlayService extends Service {
         windowManager.addView(overlayRoot, wmParams);
     }
 
-    // ---------- 拖拽处理 ----------
+    // ---------- 拖拽 ----------
     private class OverlayTouchListener implements View.OnTouchListener {
         private final WindowManager.LayoutParams params;
-
         OverlayTouchListener(WindowManager.LayoutParams p) { this.params = p; }
 
         @Override
         public boolean onTouch(View v, MotionEvent event) {
             switch (event.getAction()) {
                 case MotionEvent.ACTION_DOWN:
-                    initialX = params.x;
-                    initialY = params.y;
-                    initialTouchX = event.getRawX();
-                    initialTouchY = event.getRawY();
+                    initialX = params.x; initialY = params.y;
+                    initialTouchX = event.getRawX(); initialTouchY = event.getRawY();
                     isDragging = false;
                     return true;
                 case MotionEvent.ACTION_MOVE:
@@ -166,9 +174,7 @@ public class OverlayService extends Service {
                     }
                     return true;
                 case MotionEvent.ACTION_UP:
-                    if (!isDragging) {
-                        v.performClick();
-                    }
+                    if (!isDragging) v.performClick();
                     return true;
             }
             return false;
@@ -177,39 +183,34 @@ public class OverlayService extends Service {
 
     // ---------- 点击交互 ----------
     private void onOverlayClick() {
-        if (bubbleVisible) {
-            hideBubble();
-        } else {
-            showBubble("我在呢~ 想聊什么？");
-            glView.onInteract();
+        if (bubbleVisible) { hideBubble(); return; }
+        showBubble("我在呢~ 想聊什么？");
+        charView.onInteract();
 
-            // 调用 AI 引擎
-            aiEngine.chat("你好呀", new AiEngine.ChatCallback() {
-                @Override public void onReply(String reply) {
-                    showBubble(reply);
-                    aiEngine.speak(reply);
-                    glView.onReplyReceived();
-                }
-                @Override public void onError(String error) {
-                    showBubble("（网络好像不太稳…等一下再试试？）");
-                    Log.w(TAG, error);
-                }
-            });
-        }
+        aiEngine.chat("你好呀", new AiEngine.ChatCallback() {
+            @Override public void onReply(String reply) {
+                showBubble(reply);
+                aiEngine.speak(reply);
+                charView.onReplyReceived();
+            }
+            @Override public void onError(String error) {
+                showBubble("（网络好像不太稳…等一下再试试？）");
+                Log.w(TAG, error);
+            }
+        });
     }
 
     private void showBubble(String text) {
         chatText.setText(text);
         chatBubble.setVisibility(View.VISIBLE);
         bubbleVisible = true;
-        // 3 秒后自动隐藏
         overlayRoot.postDelayed(this::hideBubble, 5000);
     }
 
     private void hideBubble() {
         chatBubble.setVisibility(View.GONE);
         bubbleVisible = false;
-        glView.onIdle();
+        charView.onIdle();
     }
 
     // ---------- 工具 ----------
@@ -217,12 +218,15 @@ public class OverlayService extends Service {
         return (int) (dp * getResources().getDisplayMetrics().density + 0.5f);
     }
 
-    @Override
-    public IBinder onBind(Intent intent) { return null; }
+    @Override public IBinder onBind(Intent intent) { return null; }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
+        if (useUnity && charView instanceof UnityPlayerView) {
+            ((UnityPlayerView) charView).pause();
+            ((UnityPlayerView) charView).destroy();
+        }
         if (overlayRoot != null) windowManager.removeView(overlayRoot);
         if (aiEngine != null) aiEngine.shutdown();
         Log.i(TAG, "灵绘悬浮窗服务已停止");

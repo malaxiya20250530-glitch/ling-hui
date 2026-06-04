@@ -13,7 +13,7 @@ import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
 /** OpenGL ES 2.0 3D 角色渲染 — 球体 + Phong 光照 + 动画状态 */
-public class LingHuiGLView extends GLSurfaceView {
+public class LingHuiGLView extends GLSurfaceView implements ICharacterView {
 
     private final LingHuiRenderer renderer;
 
