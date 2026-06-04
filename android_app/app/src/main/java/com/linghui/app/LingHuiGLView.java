@@ -84,7 +84,7 @@ public class LingHuiGLView extends GLSurfaceView implements ICharacterView {
             GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
 
             setupShaders();
-            generateSphere(0.55f, 36, 18);
+            generateSphere(0.55f, 48, 24);
             moodStartTime = System.currentTimeMillis();
             lastColorChange = System.currentTimeMillis();
             currentColor = PALETTE[rng.nextInt(PALETTE.length)];
@@ -147,7 +147,7 @@ public class LingHuiGLView extends GLSurfaceView implements ICharacterView {
             // 传递 uniform
             GLES20.glUniformMatrix4fv(uMVPMatrix, 1, false, mvpMatrix, 0);
             GLES20.glUniformMatrix4fv(uMVMatrix, 1, false, mvMatrix, 0);
-            GLES20.glUniform3f(uLightPos, 2.0f, 2.0f, 3.0f);
+            GLES20.glUniform3f(uLightPos, 3.2f, 1.2f, 2.5f);
             GLES20.glUniform3f(uLightColor, 1.0f, 1.0f, 1.0f);
 
             // 角色颜色随心情变化
@@ -211,18 +211,23 @@ public class LingHuiGLView extends GLSurfaceView implements ICharacterView {
                 "void main() {" +
                 "  vec3 normal = normalize(vNormal);" +
                 "  vec3 lightDir = normalize(uLightPos - vPosition);" +
-                // Phong 漫反射
-                "  float diff = max(dot(normal, lightDir), 0.0);" +
-                "  vec3 diffuse = diff * uLightColor;" +
-                // 环境光
-                "  vec3 ambient = 0.15 * uLightColor;" +
-                // 高光
                 "  vec3 viewDir = normalize(-vPosition);" +
-                "  vec3 reflectDir = reflect(-lightDir, normal);" +
-                "  float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);" +
-                "  vec3 specular = 0.5 * spec * uLightColor;" +
+                // 漫反射（半兰伯特让暗面不死黑）
+                "  float diff = max(dot(normal, lightDir), 0.0);" +
+                "  float halfLambert = diff * 0.65 + 0.35;" +
+                "  vec3 diffuse = halfLambert * uLightColor;" +
+                // 环境光（压低让暗面更深）
+                "  vec3 ambient = 0.06 * uLightColor;" +
+                // 高光（Blinn-Phong，更锐利）
+                "  vec3 halfVec = normalize(lightDir + viewDir);" +
+                "  float spec = pow(max(dot(normal, halfVec), 0.0), 80.0);" +
+                "  vec3 specular = 0.75 * spec * uLightColor;" +
+                // 边缘光（rim light）增强轮廓
+                "  float rim = 1.0 - abs(dot(normal, viewDir));" +
+                "  rim = pow(rim, 3.5) * 0.30;" +
+                "  vec3 rimLight = rim * uLightColor;" +
                 // 组合
-                "  vec3 result = (ambient + diffuse + specular) * uObjectColor;" +
+                "  vec3 result = (ambient + diffuse + specular + rimLight) * uObjectColor;" +
                 "  gl_FragColor = vec4(result, 0.92);" +
                 "}";
 
