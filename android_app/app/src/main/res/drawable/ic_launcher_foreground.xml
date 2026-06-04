@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 身体：圆润气泡/果冻形状 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,28 C38,28 24,40 24,54 C24,68 34,80 48,80 L54,80 L60,80 C74,80 84,68 84,54 C84,40 70,28 54,28 Z" />
+
+    <!-- 左眼 -->
+    <path
+        android:fillColor="#7C3AED"
+        android:pathData="M42,48 C42,44 46,42 48,46 C50,42 54,44 54,48 C54,52 48,54 48,54 C48,54 42,52 42,48 Z" />
+
+    <!-- 右眼 -->
+    <path
+        android:fillColor="#7C3AED"
+        android:pathData="M56,48 C56,44 60,42 62,46 C64,42 68,44 68,48 C68,52 62,54 62,54 C62,54 56,52 56,48 Z" />
+
+    <!-- 微笑 -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#7C3AED"
+        android:strokeWidth="2"
+        android:pathData="M48,62 Q54,70 60,62" />
+
+    <!-- 腮红（左） -->
+    <path
+        android:fillColor="#F5D0FE"
+        android:pathData="M36,56 C36,52 42,50 42,56 C42,60 36,60 36,56 Z" />
+
+    <!-- 腮红（右） -->
+    <path
+        android:fillColor="#F5D0FE"
+        android:pathData="M66,56 C66,52 72,50 72,56 C72,60 66,60 66,56 Z" />
+
+    <!-- 头顶光环/天线 -->
+    <path
+        android:fillColor="#A78BFA"
+        android:pathData="M54,22 C50,22 48,26 50,28 L52,26 L54,30 L56,26 L58,28 C60,26 58,22 54,22 Z" />
+
+    <!-- 光环圆 -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#C4B5FD"
+        android:strokeWidth="2"
+        android:pathData="M40,26 C32,32 28,44 32,54" />
+</vector>
