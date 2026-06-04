@@ -38,6 +38,32 @@ public class AiEngine {
         "你可以帮主人查天气、定闹钟、打开应用、回答问题。" +
         "每次回答控制在 2-3 句话，保持简洁亲切。";
 
+    // 离线兜底回复（无网络时用）
+    private static final java.util.Map<String, String[]> FALLBACK = new java.util.LinkedHashMap<>();
+    static {
+        FALLBACK.put("你好|嗨|哈喽|hi|hello", new String[]{
+            "嗨！灵绘在此～有什么需要帮忙的吗？✨",
+            "主人好呀！今天想让我帮你做什么？",
+            "你好你好！灵绘元气满满地上线了！",
+        });
+        FALLBACK.put("你是谁|介绍|叫什么", new String[]{
+            "我叫灵绘，是你手机里的桌面精灵！温柔又靠谱的那种～",
+            "我是灵绘呀，你的虚拟桌面助手！",
+        });
+        FALLBACK.put("笑话|段子|搞笑", new String[]{
+            "为什么程序员总在万圣节上班？因为他们怕 return 0！👻",
+            "电脑和空调的区别：空调插电就凉快，电脑插电就发烧 🔥",
+        });
+        FALLBACK.put("谢谢|多谢|感谢", new String[]{
+            "不客气！这是我应该做的～💕",
+            "主人开心就好！有什么需要随时叫我哦～",
+        });
+        FALLBACK.put("天气|温度", new String[]{
+            "我现在还没接天气 API 呢，不过可以帮你用浏览器搜一下！",
+            "天气的话…建议拉开窗帘亲自看看 😄",
+        });
+    }
+
     private final OkHttpClient httpClient;
     private final Gson gson;
     private final Handler mainHandler;
@@ -101,7 +127,14 @@ public class AiEngine {
 
         httpClient.newCall(request).enqueue(new Callback() {
             @Override public void onFailure(Call call, IOException e) {
-                mainHandler.post(() -> callback.onError("LLM 请求失败: " + e.getMessage()));
+                String fallback = getFallbackReply(userMessage);
+                if (fallback != null) {
+                    addToHistory("user", userMessage);
+                    addToHistory("assistant", fallback);
+                    mainHandler.post(() -> callback.onReply(fallback));
+                } else {
+                    mainHandler.post(() -> callback.onError("LLM 请求失败: " + e.getMessage()));
+                }
             }
             @Override public void onResponse(Call call, Response response) throws IOException {
                 String reply = parseReply(response.body().string());
@@ -163,6 +196,16 @@ public class AiEngine {
             Log.w(TAG, "解析回复失败: " + e.getMessage());
         }
         return "（唔…灵绘好像有点走神了，再说一次好吗？）";
+    }
+
+    private String getFallbackReply(String input) {
+        for (java.util.Map.Entry<String, String[]> e : FALLBACK.entrySet()) {
+            if (java.util.regex.Pattern.compile(e.getKey()).matcher(input).find()) {
+                String[] replies = e.getValue();
+                return replies[new java.util.Random().nextInt(replies.length)];
+            }
+        }
+        return null;
     }
 
     private void addToHistory(String role, String content) {
