@@ -1,14 +1,77 @@
 package com.linghui.app;
 
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
+import android.widget.Button;
+import android.widget.Toast;
+
 import androidx.appcompat.app.AppCompatActivity;
 
 /** 灵绘 - AI虚拟桌面精灵主界面 */
 public class MainActivity extends AppCompatActivity {
 
+    private static final int OVERLAY_PERMISSION = 1001;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        Button btnStart = findViewById(R.id.btn_start);
+        Button btnStop = findViewById(R.id.btn_stop);
+
+        btnStart.setOnClickListener(v -> {
+            if (checkOverlayPermission()) {
+                startOverlayService();
+            } else {
+                requestOverlayPermission();
+            }
+        });
+
+        btnStop.setOnClickListener(v -> stopOverlayService());
+    }
+
+    private boolean checkOverlayPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return Settings.canDrawOverlays(this);
+        }
+        return true;
+    }
+
+    private void requestOverlayPermission() {
+        Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:" + getPackageName()));
+        startActivityForResult(intent, OVERLAY_PERMISSION);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == OVERLAY_PERMISSION) {
+            if (checkOverlayPermission()) {
+                startOverlayService();
+            } else {
+                Toast.makeText(this, "需要悬浮窗权限才能显示灵绘哦~", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    private void startOverlayService() {
+        Intent intent = new Intent(this, OverlayService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent);
+        } else {
+            startService(intent);
+        }
+        Toast.makeText(this, "灵绘已唤醒 ✨", Toast.LENGTH_SHORT).show();
+        finish();  // 关闭设置页，精灵留在桌面
+    }
+
+    private void stopOverlayService() {
+        stopService(new Intent(this, OverlayService.class));
+        Toast.makeText(this, "灵绘休息啦~", Toast.LENGTH_SHORT).show();
     }
 }
