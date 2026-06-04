@@ -279,18 +279,39 @@ public class OverlayService extends Service {
     // ---------- 点击交互 ----------
     private void onOverlayClick() {
         if (bubbleVisible) { hideBubble(); return; }
-        showBubble(getString(R.string.chat_default_greeting));
+        startVoiceConversation();
+    }
+
+    /**
+     * 启动语音对话：ASR 监听 → LLM 思考 → TTS 播报
+     */
+    private void startVoiceConversation() {
+        showBubble("正在听… 🎤");
         charView.onInteract();
 
-        aiEngine.chat("你好呀", new AiEngine.ChatCallback() {
-            @Override public void onReply(String reply) {
-                showBubble(reply);
-                aiEngine.speak(reply);
+        aiEngine.startListening(new AiEngine.ListenCallback() {
+            @Override public void onReady() {
+                showBubble("我在听呢~ 👂");
+            }
+            @Override public void onResult(String transcript) {
+                showBubble("你说: " + transcript);
                 charView.onReplyReceived();
+
+                aiEngine.chat(transcript, new AiEngine.ChatCallback() {
+                    @Override public void onReply(String reply) {
+                        showBubble(reply);
+                        aiEngine.speak(reply);
+                        charView.onReplyReceived();
+                    }
+                    @Override public void onError(String error) {
+                        showBubble(getString(R.string.chat_network_error));
+                        Log.w(TAG, error);
+                    }
+                });
             }
             @Override public void onError(String error) {
-                showBubble(getString(R.string.chat_network_error));
-                Log.w(TAG, error);
+                showBubble(error);
+                charView.onIdle();
             }
         });
     }
@@ -367,8 +388,7 @@ public class OverlayService extends Service {
     private void startWakeWordDetection() {
         aiEngine.startWakeWordDetection(transcript -> {
             Log.i(TAG, "🎯 唤醒词命中: " + transcript);
-            showBubble(getString(R.string.wake_word_greeting));
-            charView.onInteract();
+            startVoiceConversation();
         });
     }
 
