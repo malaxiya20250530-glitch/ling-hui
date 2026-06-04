@@ -18,7 +18,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.debug  // 云编译使用 debug 签名，本地发布再替换
+            signingConfig signingConfigs.debug
         }
     }
 
@@ -34,9 +34,6 @@ dependencies {
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'com.google.code.gson:gson:2.10.1'
 
-    // Unity 模块 —— 仅在 unityLibrary 存在时生效
-    def unityLib = new File(rootDir, '../unity_client/unityLibrary')
-    if (unityLib.exists()) {
-        implementation project(':unityLibrary')
-    }
+    // Unity 模块（Unity 导出后取消注释）
+    // implementation project(':unityLibrary')
 }
