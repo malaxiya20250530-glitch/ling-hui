@@ -84,7 +84,7 @@ public class LingHuiGLView extends GLSurfaceView implements ICharacterView {
             GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
 
             setupShaders();
-            generateSphere(0.45f, 36, 18);
+            generateSphere(0.55f, 36, 18);
             moodStartTime = System.currentTimeMillis();
             lastColorChange = System.currentTimeMillis();
             currentColor = PALETTE[rng.nextInt(PALETTE.length)];
@@ -96,7 +96,7 @@ public class LingHuiGLView extends GLSurfaceView implements ICharacterView {
             GLES20.glViewport(0, 0, width, height);
             float ratio = (float) width / height;
             Matrix.perspectiveM(projMatrix, 0, 45.0f, ratio, 0.1f, 100.0f);
-            Matrix.setLookAtM(viewMatrix, 0, 0, 0, 4.5f, 0, 0, 0, 0, 1, 0);
+            Matrix.setLookAtM(viewMatrix, 0, 0, 0, 3.5f, 0, 0, 0, 0, 1, 0);
         }
 
         @Override
