@@ -1,4 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">灵绘</string>
+
+    <!-- 通知渠道 -->
+    <string name="channel_name">灵绘精灵</string>
+    <string name="channel_description">灵绘虚拟精灵运行中</string>
+    <string name="notification_title">灵绘</string>
+    <string name="notification_content">虚拟精灵正在陪伴你 ✨</string>
+
+    <!-- 悬浮窗 -->
+    <string name="overlay_permission_needed">需要悬浮窗权限才能显示灵绘哦~</string>
+    <string name="overlay_started">灵绘已唤醒 ✨</string>
+    <string name="overlay_stopped">灵绘休息啦~</string>
+
+    <!-- 唤醒词 -->
+    <string name="wake_word_default">灵绘</string>
+    <string name="wake_word_greeting">我在呢~ 👋 想聊什么？</string>
+
+    <!-- 对话 -->
+    <string name="chat_network_error">（网络好像不太稳…等一下再试试？）</string>
+    <string name="chat_default_greeting">我在呢~ 想聊什么？</string>
+
+    <!-- 操作反馈 -->
+    <string name="action_success_prefix">✅ </string>
+    <string name="action_fail_prefix">❌ </string>
+    <string name="action_fail_suffix"> 执行失败：</string>
+    <string name="action_unknown">未知操作</string>
+    <string name="action_app_opened">已打开 </string>
+    <string name="action_app_not_found">未找到应用 </string>
+    <string name="action_searching">正在搜索: </string>
+    <string name="action_remind_set">提醒已设置: </string>
+    <string name="action_clipboard_copied">已复制到剪贴板</string>
+    <string name="action_screenshot_manual">请手动截图</string>
+    <string name="action_vibrated">已振动 </string>
+    <string name="action_brightness_set">亮度已设置为 </string>
+    <string name="action_volume_set">音量已设置为 </string>
+    <string name="action_market_search">正在应用商店搜索 </string>
+    <string name="action_brightness_permission">需要「修改系统设置」权限才能调整亮度</string>
+    <string name="action_screenshot_permission">📸 截图功能需要系统权限，请手动截图哦~</string>
+
+    <!-- 提醒通知 -->
+    <string name="remind_default_title">灵绘提醒</string>
 </resources>

@@ -1,8 +1,13 @@
 package com.linghui.app;
 
 import android.content.Context;
+import android.content.Intent;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.util.Log;
 
@@ -67,6 +72,12 @@ public class AiEngine {
     private final OkHttpClient httpClient;
     private final Gson gson;
     private final Handler mainHandler;
+    private final Context appContext;
+    private SpeechRecognizer speechRecognizer;
+    private boolean isListening;
+    private boolean isDetectingWakeWord;
+    private String wakeWord = "灵绘";
+    private WakeWordCallback wakeWordCb;
     private TextToSpeech tts;
     private boolean ttsReady;
 
@@ -81,6 +92,7 @@ public class AiEngine {
     private boolean useOpenAi = false;
 
     public AiEngine(Context context) {
+        this.appContext = context.getApplicationContext();
         this.httpClient = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
@@ -223,9 +235,182 @@ public class AiEngine {
         }
     }
 
-    // ---------- ASR 占位 ----------
+    // ---------- ASR 语音识别 ----------
     public void startListening(ListenCallback callback) {
-        callback.onReady();
+        if (!SpeechRecognizer.isRecognitionAvailable(appContext)) {
+            callback.onError("语音识别不可用");
+            return;
+        }
+
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+        }
+
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(appContext);
+        speechRecognizer.setRecognitionListener(new RecognitionListener() {
+            @Override public void onReadyForSpeech(Bundle params) {
+                isListening = true;
+                mainHandler.post(() -> callback.onReady());
+            }
+            @Override public void onBeginningOfSpeech() {
+                Log.d(TAG, "用户开始说话");
+            }
+            @Override public void onRmsChanged(float rmsdB) {}
+            @Override public void onBufferReceived(byte[] buffer) {}
+            @Override public void onEndOfSpeech() {
+                isListening = false;
+                Log.d(TAG, "用户停止说话");
+            }
+            @Override public void onError(int error) {
+                isListening = false;
+                String msg;
+                switch (error) {
+                    case SpeechRecognizer.ERROR_NETWORK:
+                        msg = "网络连接失败，请检查网络"; break;
+                    case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:
+                        msg = "网络超时"; break;
+                    case SpeechRecognizer.ERROR_NO_MATCH:
+                        msg = "没听清，再说一次好吗？"; break;
+                    case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
+                        msg = "说话时间过长"; break;
+                    case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
+                        msg = "语音引擎正忙"; break;
+                    case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
+                        msg = "缺少录音权限"; break;
+                    default:
+                        msg = "语音识别出错 (" + error + ")"; break;
+                }
+                Log.w(TAG, "ASR 错误: " + msg);
+                mainHandler.post(() -> callback.onError(msg));
+            }
+            @Override public void onResults(Bundle results) {
+                isListening = false;
+                java.util.ArrayList<String> matches =
+                    results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                if (matches != null && !matches.isEmpty()) {
+                    String transcript = matches.get(0);
+                    Log.i(TAG, "识别结果: " + transcript);
+                    mainHandler.post(() -> callback.onResult(transcript));
+                } else {
+                    mainHandler.post(() -> callback.onError("未能识别语音"));
+                }
+            }
+            @Override public void onPartialResults(Bundle partialResults) {}
+            @Override public void onEvent(int eventType, Bundle params) {}
+        });
+
+        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.CHINESE.toString());
+        intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
+
+        speechRecognizer.startListening(intent);
+    }
+
+    public void stopListening() {
+        if (speechRecognizer != null && isListening) {
+            speechRecognizer.stopListening();
+            isListening = false;
+        }
+    }
+
+    public boolean isListening() {
+        return isListening;
+    }
+
+    // ---------- 唤醒词检测 ----------
+
+    public void setWakeWord(String word) {
+        this.wakeWord = word;
+    }
+
+    /**
+     * 启动唤醒词连续检测 — 后台持续监听，命中唤醒词后回调
+     *
+     * 原理：循环调用 SpeechRecognizer，每次识别结果检查是否含唤醒词。
+     * 命中后自动停止循环，适合低功耗后台值守。
+     */
+    public void startWakeWordDetection(WakeWordCallback callback) {
+        if (isDetectingWakeWord) return;
+        isDetectingWakeWord = true;
+        this.wakeWordCb = callback;
+        Log.i(TAG, "唤醒词检测启动: "" + wakeWord + """);
+        runWakeWordLoop();
+    }
+
+    public void stopWakeWordDetection() {
+        isDetectingWakeWord = false;
+        stopListening();
+        Log.i(TAG, "唤醒词检测停止");
+    }
+
+    public boolean isDetectingWakeWord() {
+        return isDetectingWakeWord;
+    }
+
+    private void runWakeWordLoop() {
+        if (!isDetectingWakeWord) return;
+
+        if (!SpeechRecognizer.isRecognitionAvailable(appContext)) {
+            // 不可用时延迟重试
+            mainHandler.postDelayed(this::runWakeWordLoop, 3000);
+            return;
+        }
+
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+        }
+
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(appContext);
+        speechRecognizer.setRecognitionListener(new RecognitionListener() {
+            @Override public void onReadyForSpeech(Bundle params) {}
+            @Override public void onBeginningOfSpeech() {}
+            @Override public void onRmsChanged(float rmsdB) {}
+            @Override public void onBufferReceived(byte[] buffer) {}
+            @Override public void onEndOfSpeech() {}
+
+            @Override public void onError(int error) {
+                // 出错后延迟重试
+                if (isDetectingWakeWord) {
+                    mainHandler.postDelayed(() -> runWakeWordLoop(), 1500);
+                }
+            }
+
+            @Override public void onResults(Bundle results) {
+                java.util.ArrayList<String> matches =
+                    results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                if (matches != null) {
+                    for (String text : matches) {
+                        if (text != null && text.contains(wakeWord)) {
+                            Log.i(TAG, "🎯 检测到唤醒词: " + text);
+                            isDetectingWakeWord = false;
+                            if (wakeWordCb != null) {
+                                mainHandler.post(() -> wakeWordCb.onWakeWordDetected(text));
+                            }
+                            return;
+                        }
+                    }
+                }
+                // 未命中，继续循环
+                if (isDetectingWakeWord) {
+                    mainHandler.postDelayed(() -> runWakeWordLoop(), 800);
+                }
+            }
+
+            @Override public void onPartialResults(Bundle partialResults) {}
+            @Override public void onEvent(int eventType, Bundle params) {}
+        });
+
+        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.CHINESE.toString());
+        intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
+
+        speechRecognizer.startListening(intent);
     }
 
     // ---------- 配置 ----------
@@ -238,6 +423,11 @@ public class AiEngine {
     public void setOpenAiKey(String key) { this.openAiKey = key; }
 
     public void shutdown() {
+        isDetectingWakeWord = false;
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+            speechRecognizer = null;
+        }
         if (tts != null) { tts.stop(); tts.shutdown(); }
     }
 
@@ -251,5 +441,9 @@ public class AiEngine {
         void onReady();
         void onResult(String transcript);
         void onError(String error);
+    }
+
+    public interface WakeWordCallback {
+        void onWakeWordDetected(String transcript);
     }
 }

@@ -7,6 +7,8 @@ on:
       - 'automation/**'
       - 'personality/**'
       - 'config/**'
+      - 'demo/**'
+      - '.github/workflows/test-ai-pipeline.yml'
   pull_request:
 
 jobs:
@@ -20,46 +22,62 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: 验证导入
+      - name: 模块导入验证
         run: |
           python3 -c "
           from personality.character import LingHuiCharacter
           from personality.memory import ConversationMemory
-          from personality.emotions import EmotionState
-          from ai_core.asr import SpeechRecognizer
+          from personality.emotions import EmotionState, Mood
           from ai_core.llm import ChatEngine
-          from ai_core.tts import SpeechSynthesizer
           from ai_core.pipeline import LingHuiPipeline
-          print('AI 管线导入成功 ✔')
+          from automation.droidwright import DroidWright, ExecutionStatus
+          from automation.intent_parser import IntentParser
+          print('✅ 全部模块导入成功')
           "
 
-      - name: 自动化模块测试
+      - name: 自动化模块单元测试
         run: |
           python3 -c "
           from automation.droidwright import DroidWright, ExecutionStatus
           from automation.intent_parser import IntentParser
-          from automation.actions import ActionResult
 
           # 意图解析测试
           r = IntentParser.parse('打开微信')
-          assert r is not None and r.action_type == 'open_app'
+          assert r is not None and r.action_type == 'open_app', 'open_app 未识别'
           r = IntentParser.parse('亮度调到200')
-          assert r is not None and r.action_type == 'brightness'
+          assert r is not None and r.action_type == 'brightness', 'brightness 未识别'
           r = IntentParser.parse('今天天气不错')
-          assert r is None
+          assert r is None, '闲聊误触发'
 
-          # DroidWright 无操作测试
+          # DroidWright 执行测试
           dw = DroidWright()
           outcome = dw.execute('你好')
           assert outcome['status'] == ExecutionStatus.NO_ACTION
+          outcome = dw.execute('打开微信')
+          assert outcome['status'] != ExecutionStatus.NO_ACTION
 
-          print('自动化模块测试通过 ✔')
+          print('✅ 自动化模块测试通过')
+          "
+
+      - name: 🧪 完整自测套件 (self_test.py)
+        run: |
+          cd demo
+          python3 self_test.py
+        working-directory: .
+
+      - name: 桥接服务器语法验证
+        run: |
+          python3 -c "
+          import py_compile
+          py_compile.compile('ai_core/bridge_server.py', doraise=True)
+          print('✅ bridge_server.py 语法正确')
           "
 
       - name: 烟雾测试
         run: |
           python3 -c "
           c = __import__('personality.character', fromlist=['LingHuiCharacter']).LingHuiCharacter()
-          assert '灵绘' in c.build_system_prompt()
-          print('烟雾测试通过 ✔')
+          prompt = c.build_system_prompt()
+          assert '灵绘' in prompt, '角色名不在提示词中'
+          print('✅ 烟雾测试通过')
           "

@@ -54,7 +54,7 @@ public class MainActivity extends AppCompatActivity {
             if (checkOverlayPermission()) {
                 startOverlayService();
             } else {
-                Toast.makeText(this, "需要悬浮窗权限才能显示灵绘哦~", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, getString(R.string.overlay_permission_needed), Toast.LENGTH_LONG).show();
             }
         }
     }
@@ -66,12 +66,12 @@ public class MainActivity extends AppCompatActivity {
         } else {
             startService(intent);
         }
-        Toast.makeText(this, "灵绘已唤醒 ✨", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.overlay_started), Toast.LENGTH_SHORT).show();
         finish();  // 关闭设置页，精灵留在桌面
     }
 
     private void stopOverlayService() {
         stopService(new Intent(this, OverlayService.class));
-        Toast.makeText(this, "灵绘休息啦~", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.overlay_stopped), Toast.LENGTH_SHORT).show();
     }
 }

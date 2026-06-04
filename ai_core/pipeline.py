@@ -17,6 +17,13 @@ from personality.memory import ConversationMemory
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), ".."))
 from automation.droidwright import DroidWright
 
+# 尝试导入桥接推送（可选，桥未运行时静默失败）
+try:
+    from ai_core.bridge_server import push_message as _bridge_push
+except ImportError:
+    def _bridge_push(msg_type, **kwargs):
+        pass  # 桥未就绪
+
 
 class LingHuiPipeline:
     """灵绘对话管线：语音输入 → LLM 思考 → 语音输出"""
@@ -74,36 +81,53 @@ class LingHuiPipeline:
 
     @staticmethod
     def _load_config(path: str) -> dict:
-        """加载全局配置文件"""
+        """加载全局配置 — config.json 合并 config.local.json 覆盖"""
+        # 确定基础配置文件
         if path and os.path.exists(path):
+            config_file = path
+        else:
+            config_file = os.path.join(os.path.dirname(__file__), "..",
+                                       "config", "config.json")
+
+        cfg = {}
+        if os.path.exists(config_file):
             try:
-                with open(path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                with open(config_file, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
             except (json.JSONDecodeError, OSError):
                 pass
-        # 尝试默认路径
-        default = os.path.join(os.path.dirname(__file__), "..", "config",
-                               "config.json")
-        if os.path.exists(default):
-            with open(default, "r", encoding="utf-8") as f:
-                return json.load(f)
-        return {}
+
+        # 合并 config.local.json 覆盖（递归合并顶层键）
+        local_file = os.path.join(os.path.dirname(config_file),
+                                  "config.local.json")
+        if os.path.exists(local_file):
+            try:
+                with open(local_file, "r", encoding="utf-8") as f:
+                    local_cfg = json.load(f)
+                LingHuiPipeline._deep_merge(cfg, local_cfg)
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        return cfg
+
+    @staticmethod
+    def _deep_merge(base: dict, override: dict) -> None:
+        """递归合并 override 到 base（原地修改）"""
+        for key, val in override.items():
+            if key in base and isinstance(base[key], dict) and isinstance(val, dict):
+                LingHuiPipeline._deep_merge(base[key], val)
+            else:
+                base[key] = val
 
     @staticmethod
     def _load_api_key() -> str:
-        """加载 API 密钥（环境变量优先）"""
+        """加载 API 密钥（环境变量 OPENAI_API_KEY 优先）"""
         key = os.environ.get("OPENAI_API_KEY", "")
         if key:
             return key
-        local_cfg = os.path.join(os.path.dirname(__file__), "..", "config",
-                                 "config.local.json")
-        if os.path.exists(local_cfg):
-            try:
-                with open(local_cfg, "r", encoding="utf-8") as f:
-                    return json.load(f).get("api_keys", {}).get("openai", "")
-            except (json.JSONDecodeError, OSError, KeyError):
-                pass
-        return ""
+        # 从已合并的配置中读取（_load_config 会合并 config.local.json）
+        cfg = LingHuiPipeline._load_config(None)
+        return cfg.get("api_keys", {}).get("openai", "")
 
     # ── 核心流程 ───────────────────────────────────────
 
@@ -125,15 +149,23 @@ class LingHuiPipeline:
         # 2. 更新情绪 & 记忆
         self.emotion.on_user_message(user_text)
         self.memory.add_user(user_text)
+        _bridge_push("mood", mood=self.emotion.mood.value)
 
         # 3. LLM 对话
         history = self.memory.get_context()
         mood_hint = self.emotion.mood_hint()
         reply = self.llm.chat(user_text, history=history, mood_hint=mood_hint)
 
+        # 推送到桥: 说话状态 + 回复内容
+        _bridge_push("talking", talking=True, talkIntensity=0.8)
+        _bridge_push("reply", replyText=reply)
+        _bridge_push("talking", talking=False, talkIntensity=0.0)
+
         # 检查是否有自动化操作需要执行
         action_outcome = self.droidwright.execute(reply)
         if action_outcome["status"].value != "no_action":
+            _bridge_push("action", action=action_outcome.get("action_type", ""),
+                         params=action_outcome.get("params", {}))
             action_hint = self.droidwright.get_response_hint(action_outcome)
             if action_hint:
                 reply = reply + "\n" + action_hint

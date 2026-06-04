@@ -32,5 +32,11 @@
     "mode": "push_to_talk",
     "silence_timeout_sec": 2.0,
     "max_record_sec": 15
+  },
+  "bridge": {
+    "_comment": "桥接服务器配置 — Python ↔ Android 双向通信",
+    "host": "0.0.0.0",
+    "port": 8801,
+    "polling_interval_ms": 500
   }
 }

@@ -35,3 +35,15 @@
 2. 大脑 — ASR+LLM+TTS 接入
 3. 手脚 — DroidWright 手机自动化
 4. 灵魂 — 角色人格定义
+
+## 🎮 Unity 3D 开发
+
+3D 资产通过 AI 工具生成，详见 [`docs/UNITY_INTEGRATION.md`](docs/UNITY_INTEGRATION.md)。
+
+已集成的 AI 工具（位于 `unity_tools/`）：
+
+| 工具 | 用途 |
+|---|---|
+| [unity-editor-mcp](https://github.com/ozankasikci/unity-editor-mcp) | 场景构建 + Prefab 管理（62 工具） |
+| [Unity-AI-Animation](https://github.com/IvanMurzak/Unity-AI-Animation) | 自然语言创建动画控制器 |
+| [Unity-MCP-Extensions](https://github.com/meta-quest/Unity-MCP-Extensions) | Unity MCP 扩展 |
