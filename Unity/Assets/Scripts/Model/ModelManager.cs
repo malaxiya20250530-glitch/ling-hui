@@ -1,54 +1,70 @@
 using UnityEngine;
 
 /// <summary>
-/// 模型管理器 —— 运行时切换角色模型
-/// 优先加载 VRM，降级到内置球体
+/// 模型管理器 — 支持 GLB 预制体和 VRM 运行时加载
+/// GLB: 直接拖入 Unity Assets → 挂载到 modelPrefab 槽位
+/// VRM: 放入 StreamingAssets → VRMModelLoader 动态加载
 /// </summary>
 public class ModelManager : MonoBehaviour
 {
-    [Header("模型列表（从 StreamingAssets 加载 .vrm）")]
-    public string[] availableModels = { "linghui.vrm", "ne_zha.vrm" };
+    [Header("GLB 预制体（优先使用）")]
+    [Tooltip("从 Assets 拖入 nezha.glb 生成的预制体")]
+    public GameObject modelPrefab;
+
+    [Header("VRM 回退（从 StreamingAssets 加载）")]
+    public string[] vrmFallbacks = { "linghui.vrm" };
+
+    [Header("运行时")]
+    [SerializeField] private GameObject currentModel;
 
     private VRMModelLoader vrmLoader;
     private LingHuiCharacter character;
-    private int currentModelIndex;
 
     void Awake()
     {
         vrmLoader = GetComponent<VRMModelLoader>();
         if (vrmLoader == null) vrmLoader = gameObject.AddComponent<VRMModelLoader>();
-
-        character = FindObjectOfType<LingHuiCharacter>();
     }
 
     void Start()
     {
-        if (availableModels.Length > 0)
+        // 优先用 GLB 预制体
+        if (modelPrefab != null)
         {
-            vrmLoader.modelFileName = availableModels[0];
+            currentModel = Instantiate(modelPrefab, transform);
+            currentModel.name = modelPrefab.name;
+            Debug.Log($"[ModelManager] GLB 预制体已加载: {modelPrefab.name}");
+        }
+        // 回退到 VRM
+        else if (vrmFallbacks.Length > 0)
+        {
+            vrmLoader.modelFileName = vrmFallbacks[0];
             vrmLoader.LoadModel();
+            Debug.Log($"[ModelManager] VRM 回退: {vrmFallbacks[0]}");
+        }
+        else
+        {
+            Debug.LogWarning("[ModelManager] 无可用模型");
+        }
+
+        // 获取或添加角色控制器
+        if (currentModel != null)
+        {
+            character = currentModel.GetComponent<LingHuiCharacter>();
+            if (character == null)
+                character = currentModel.AddComponent<LingHuiCharacter>();
         }
     }
 
-    /// <summary>切换到下一个模型</summary>
-    public void NextModel()
+    /// <summary>切换到指定名称的 VRM 模型</summary>
+    public void SwitchToVRM(string fileName)
     {
-        if (availableModels.Length == 0) return;
-
-        currentModelIndex = (currentModelIndex + 1) % availableModels.Length;
-        vrmLoader.SwitchModel(availableModels[currentModelIndex]);
-
-        // 等待一帧后重新获取角色控制器引用
-        StartCoroutine(RefreshCharacterRef());
+        if (currentModel != null)
+            Destroy(currentModel);
+        vrmLoader.SwitchModel(fileName);
     }
 
-    System.Collections.IEnumerator RefreshCharacterRef()
-    {
-        yield return null;
-        character = FindObjectOfType<LingHuiCharacter>();
-    }
-
-    /// <summary>设置心情（转发给角色控制器）</summary>
+    /// <summary>设置心情</summary>
     public void SetMood(string mood)
     {
         if (character != null) character.SetMood(mood);
@@ -59,4 +75,7 @@ public class ModelManager : MonoBehaviour
     {
         if (character != null) character.OnInteract();
     }
+
+    /// <summary>获取当前模型</summary>
+    public GameObject CurrentModel => currentModel;
 }

@@ -163,3 +163,62 @@ void OnMoodChanged(string mood) {
 - [ ] VRM 模型加载后能在 Game View 中渲染
 - [ ] 透明背景在悬浮窗模式下正常
 - [ ] `python3 demo/run_demo.py` 与 Unity Editor 联动正常
+
+---
+
+## 🎯 哪吒 GLB 模型导入指南（当前使用）
+
+### 已生成模型
+
+| 文件 | 大小 | 格式 | 来源 |
+|------|------|------|------|
+| `nezha.glb` | 2.4 MB | GLTF 2.0 | TripoSR（HuggingFace Space） |
+
+### 导入步骤
+
+1. **拷贝模型到 Unity 工程**
+   ```bash
+   cp nezha.glb Unity/Assets/Models/
+   ```
+
+2. **Unity 中打开工程** → `Assets/Models/nezha.glb` 会自动导入
+
+3. **拖入场景** → 把 `nezha` 预制体拖到 Hierarchy 窗口
+
+4. **配置 Humanoid Rig**（无 Mixamo 时手动绑骨）
+   - 选中模型 → Inspector → **Rig** 标签
+   - **Animation Type** → `Humanoid`
+   - **Avatar Definition** → `Create From This Model`
+   - 点 **Configure** 进入骨骼映射界面
+   - 绿色圆点 = 自动匹配成功，红色需手动拖拽：
+     - `Head` → 拖到模型头顶
+     - `Left Hand` → 拖到左手腕
+     - `Right Hand` → 拖到右手腕
+     - `Left Foot` → 拖到左脚踝
+     - `Right Foot` → 拖到右脚踝
+     - （如果 TripoSR 模型没手指，Chest/Upper Leg 等设为 None 即可）
+   - 点 **Apply** → **Done**
+
+5. **挂载脚本** — 选中 Hierarchy 中的 nezha 对象：
+   - `Add Component` → 搜 `ModelManager` → 把 `nezha` 预制体拖到 `Model Prefab` 槽
+   - `Add Component` → 搜 `LingHuiCharacter`
+   - `Add Component` → 搜 `AiBridge`
+
+6. **材质修复**（TripoSR 无材质，用顶点色）
+   - 选中 `nezha` → Inspector → **Materials** 标签
+   - **Extract Materials** → 选 `Assets/Materials/`
+   - 将提取的材质 Shader 改为 `LingHui/ToonCharacter`
+
+### Animator Controller 配置
+
+创建 `Assets/Animations/LingHui_Anim.controller`，四个状态：
+
+| 状态 | 动画 | 触发参数 | 说明 |
+|------|------|----------|------|
+| Idle | 呼吸缩放 (0, 0, 0) | 默认 | 轻微上下浮动 |
+| Talking | 弹跳 + 缩放脉冲 | `onTalk` (Trigger) | AI 说话时 |
+| Happy | 快速旋转 | `onHappy` (Trigger) | 开心回应 |
+| Surprised | 突然放大 | `onSurprised` (Trigger) | 好奇/惊讶 |
+
+所有过渡时间：**0.25 秒**，取消 `Has Exit Time`，`Transition Duration` = 0.25。
+
