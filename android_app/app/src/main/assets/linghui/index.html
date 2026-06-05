@@ -1,0 +1,428 @@
+<!DOCTYPE html><html lang=zh><head><meta charset=UTF-8><meta name=viewport content="width=device-width,initial-scale=1,user-scalable=no"><title>灵绘</title>
+<link rel=manifest href=manifest.json>
+<meta name=mobile-web-app-capable content=yes><meta name=apple-mobile-web-app-capable content=yes>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0618;overflow:hidden;font-family:sans-serif;-webkit-tap-highlight-color:transparent}
+
+/* 星空 */
+.stars{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none}
+
+/* 加载提示 */
+#L{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:#f80;font-size:14px;font-family:monospace;z-index:10;pointer-events:none;transition:opacity .6s}
+
+/* 连接状态 */
+#conn{position:fixed;top:12px;left:12px;z-index:100;width:10px;height:10px;border-radius:50%;background:#666;transition:background .3s}
+#conn.on{background:#0f0;box-shadow:0 0 6px #0f0}
+#conn.off{background:#f44;box-shadow:0 0 6px #f44}
+
+/* 对话气泡 */
+#bubble{position:fixed;top:10%;left:50%;transform:translateX(-50%);z-index:50;background:rgba(20,10,40,.92);color:#eee;padding:12px 18px;border-radius:16px;max-width:82vw;max-height:26vh;overflow-y:auto;font-size:15px;line-height:1.5;opacity:0;transition:opacity .4s;pointer-events:none;border:1px solid rgba(255,136,0,.3);word-break:break-word}
+#bubble.show{opacity:1}
+#bubble .emoji{font-size:24px;display:block;margin-bottom:4px}
+
+/* AR 链接 */
+#arLink{position:fixed;top:28px;right:15px;z-index:100;background:rgba(255,136,0,.8);color:#fff;padding:6px 14px;border-radius:18px;text-decoration:none;font-size:13px}
+
+/* 底部标签栏 */
+#tabBar{position:fixed;bottom:0;left:0;right:0;z-index:100;display:flex;background:rgba(10,6,24,.96);border-top:1px solid rgba(255,136,0,.15)}
+#tabBar button{flex:1;padding:10px 4px;border:none;background:none;color:rgba(255,255,255,.45);font-size:13px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
+#tabBar button .tabIcon{font-size:20px}
+#tabBar button.active{color:#f80}
+
+/* 对话输入 */
+#chatPanel{position:fixed;bottom:60px;left:0;right:0;z-index:99;background:rgba(10,6,24,.94);padding:6px 10px;display:flex;gap:6px;align-items:center;border-bottom:1px solid rgba(255,136,0,.1)}
+#chatPanel input{flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,136,0,.25);color:#fff;padding:8px 12px;border-radius:20px;font-size:14px;outline:none}
+#chatPanel input::placeholder{color:rgba(255,255,255,.35)}
+#chatPanel button{width:36px;height:36px;border-radius:50%;border:none;font-size:16px;cursor:pointer;background:rgba(255,136,0,.15);color:#f80;display:flex;align-items:center;justify-content:center}
+#chatPanel button.send{background:#f80;color:#fff;width:48px;height:36px;border-radius:20px;font-size:13px}
+#chatPanel button.recording{background:#f44;animation:pulse .8s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+/* 音乐面板 */
+#musicPanel{position:fixed;bottom:60px;left:0;right:0;z-index:98;background:rgba(10,6,24,.96);padding:12px;display:none;max-height:55vh;overflow-y:auto;border-bottom:1px solid rgba(255,136,0,.1)}
+#musicPanel.show{display:block}
+
+#nowPlaying{display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:10px;background:rgba(255,136,0,.08);border-radius:12px}
+#nowPlaying .cover{width:48px;height:48px;border-radius:8px;background:rgba(255,136,0,.2);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
+#nowPlaying .info{flex:1;min-width:0}
+#nowPlaying .title{color:#fff;font-size:14px;font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#nowPlaying .artist{color:rgba(255,255,255,.5);font-size:12px;margin-top:2px}
+
+#playerCtl{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+#playerCtl button{width:36px;height:36px;border-radius:50%;border:none;font-size:18px;cursor:pointer;background:rgba(255,136,0,.15);color:#f80;display:flex;align-items:center;justify-content:center}
+#playerCtl button.playBtn{width:44px;height:44px;background:#f80;color:#fff;font-size:20px}
+#timeBar{flex:1;height:4px;background:rgba(255,136,0,.2);border-radius:2px;cursor:pointer;position:relative}
+#timeBar div{height:100%;background:#f80;border-radius:2px;width:0;transition:width .1s linear}
+#timeInfo{display:flex;justify-content:space-between;color:rgba(255,255,255,.4);font-size:11px;margin-bottom:12px}
+
+#volCtl{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+#volCtl span{color:rgba(255,255,255,.4);font-size:14px}
+#volCtl input{flex:1;accent-color:#f80;height:4px}
+
+#musicActions{display:flex;gap:8px;margin-bottom:10px}
+#musicActions button{flex:1;padding:8px;border-radius:8px;border:1px solid rgba(255,136,0,.2);background:rgba(255,136,0,.08);color:#f80;font-size:12px;cursor:pointer}
+
+#musicSearch{display:none;margin-bottom:10px}
+#musicSearch input{width:100%;padding:8px 12px;background:rgba(255,255,255,.08);border:1px solid rgba(255,136,0,.25);color:#fff;border-radius:8px;font-size:13px;outline:none}
+#musicSearch input::placeholder{color:rgba(255,255,255,.35)}
+
+#searchResults,#playlist{max-height:30vh;overflow-y:auto}
+.songItem{display:flex;align-items:center;gap:10px;padding:10px 8px;border-bottom:1px solid rgba(255,136,0,.06);cursor:pointer;transition:background .15s}
+.songItem:active{background:rgba(255,136,0,.1)}
+.songItem .sIdx{color:rgba(255,255,255,.3);font-size:12px;width:20px;text-align:center;flex-shrink:0}
+.songItem .sInfo{flex:1;min-width:0}
+.songItem .sTitle{color:#fff;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.songItem .sArtist{color:rgba(255,255,255,.4);font-size:11px;margin-top:2px}
+.songItem .sBtn{color:#f80;font-size:18px;flex-shrink:0;padding:4px}
+
+#fileInput{display:none}
+#wakeIndicator{position:fixed;bottom:50%;left:50%;transform:translate(-50%,50%);z-index:60;color:#f80;font-size:14px;opacity:0;transition:opacity .3s;pointer-events:none;background:rgba(0,0,0,.7);padding:8px 16px;border-radius:20px}
+#wakeIndicator.show{opacity:1}
+#musicToast{position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:120;color:#fff;font-size:13px;background:rgba(255,136,0,.85);padding:8px 16px;border-radius:16px;opacity:0;transition:opacity .3s;pointer-events:none}
+#musicToast.show{opacity:1}
+
+/* 小球 */
+#orbCanvas{position:fixed;top:0;left:0;width:100%;height:100%;z-index:1;pointer-events:none}
+</style></head>
+<body>
+
+<canvas class=stars id=starsC></canvas>
+<canvas id=orbCanvas></canvas>
+<div id=conn></div>
+<div id=L>🔥 灵绘 · 小球版</div>
+<div id=bubble></div>
+<a id=arLink href=ar.html>📱 AR</a>
+<div id=wakeIndicator>🎤 我在听...</div>
+<div id=musicToast></div>
+
+<div id=chatPanel>
+  <button id=micBtn title=语音>🎤</button>
+  <input id=msgIn type=text placeholder="和灵绘说点什么..." enterkeyhint=send>
+  <button id=sendBtn class=send>发送</button>
+</div>
+
+<div id=musicPanel>
+  <div id=nowPlaying>
+    <div class=cover>🎵</div>
+    <div class=info>
+      <div class=title>未在播放</div>
+      <div class=artist>点击歌曲开始播放</div>
+    </div>
+  </div>
+  <div id=timeInfo><span id=curTime>00:00</span><span id=durTime>00:00</span></div>
+  <div id=timeBar><div></div></div>
+  <div id=playerCtl>
+    <button id=btnPrev>⏮️</button>
+    <button id=btnPlay class=playBtn>▶️</button>
+    <button id=btnNext>⏭️</button>
+    <button id=btnMode>🔁</button>
+  </div>
+  <div id=volCtl>
+    <span>🔈</span><input type=range id=volSlider min=0 max=100 value=70><span>🔊</span>
+  </div>
+  <div id=musicActions>
+    <button id=btnSearch>🔍 搜歌</button>
+    <button id=btnImport>📂 本地</button>
+  </div>
+  <div id=musicSearch><input id=searchIn type=text placeholder="搜索歌曲..." enterkeyhint=search></div>
+  <div id=searchResults></div>
+  <div id=playlist></div>
+</div>
+
+<div id=tabBar>
+  <button class=active data-tab=chat><span class=tabIcon>💬</span>对话</button>
+  <button data-tab=music><span class=tabIcon>🎵</span>音乐</button>
+</div>
+
+<input type=file id=fileInput accept=audio/* multiple>
+
+<script>
+// ═══ DOM ═══
+var L=document.getElementById('L'),connDot=document.getElementById('conn'),bubble=document.getElementById('bubble');
+var msgIn=document.getElementById('msgIn'),sendBtn=document.getElementById('sendBtn'),micBtn=document.getElementById('micBtn');
+var wakeIndicator=document.getElementById('wakeIndicator'),musicToast=document.getElementById('musicToast');
+
+// ═══ 情绪 ═══
+var currentEmotion='idle';
+var EMOTION_EMOJI={happy:'😊',sad:'😢',angry:'😤',curious:'🤔',idle:'😶',excited:'🤩',sleepy:'😴'};
+var EMOTION_COLORS={happy:'#ffcc00',sad:'#4488ff',angry:'#ff3333',curious:'#cc66ff',idle:'#ff8800',excited:'#ff6600',sleepy:'#8888cc'};
+
+// ═══ 气泡 ═══
+var bubbleTimer=null;
+function showBubble(text,emotion){
+  if(!text)return;
+  var emoji=EMOTION_EMOJI[emotion||currentEmotion]||'';
+  bubble.innerHTML=(emoji?'<span class=emoji>'+emoji+'</span>':'')+text;
+  bubble.classList.add('show');
+  clearTimeout(bubbleTimer);
+  bubbleTimer=setTimeout(function(){bubble.classList.remove('show')},8000);
+}
+function showToast(msg){
+  musicToast.textContent=msg;musicToast.classList.add('show');
+  setTimeout(function(){musicToast.classList.remove('show')},2500);
+}
+function setEmotion(emotion){
+  currentEmotion=emotion||'idle';
+  orbColor=EMOTION_COLORS[currentEmotion]||EMOTION_COLORS.idle;
+}
+
+// ═══ 标签 ═══
+var currentTab='chat';
+document.getElementById('tabBar').addEventListener('click',function(e){
+  var btn=e.target.closest('button');if(!btn)return;
+  var tab=btn.dataset.tab;if(!tab||tab===currentTab)return;
+  currentTab=tab;
+  this.querySelectorAll('button').forEach(function(b){b.classList.toggle('active',b.dataset.tab===tab)});
+  document.getElementById('chatPanel').style.display=tab==='chat'?'flex':'none';
+  document.getElementById('musicPanel').classList.toggle('show',tab==='music');
+});
+
+// ═══ WebSocket ═══
+var ws=null,wsReconnectTimer=null;
+function connectWS(){
+  if(ws&&ws.readyState===WebSocket.OPEN)return;
+  try{
+    ws=new WebSocket('ws://'+window.location.hostname+':9527');
+    ws.onopen=function(){connDot.className='on';L.style.opacity='0';if(wsReconnectTimer){clearInterval(wsReconnectTimer);wsReconnectTimer=null}};
+    ws.onclose=function(){connDot.className='off';if(!wsReconnectTimer)wsReconnectTimer=setInterval(connectWS,3000)};
+    ws.onerror=function(){connDot.className='off'};
+    ws.onmessage=function(e){
+      try{var data=JSON.parse(e.data);
+        if(data.type==='pet_response'){showBubble(data.text,data.emotion);setEmotion(data.emotion)}
+      }catch(_){}
+    };
+  }catch(_){connDot.className='off';if(!wsReconnectTimer)wsReconnectTimer=setInterval(connectWS,3000)}
+}
+
+function sendMsg(text){
+  text=text.trim();if(!text)return;msgIn.value='';
+  if(ws&&ws.readyState===WebSocket.OPEN){
+    ws.send(JSON.stringify({type:'user_input',content:text,context:{app_focus:'home',time:new Date().toTimeString().slice(0,5)}}));
+    showBubble('💬 '+text,'idle');
+  }else{showBubble('⚠️ AI 后端未连接','sad')}
+}
+sendBtn.addEventListener('click',function(){sendMsg(msgIn.value)});
+msgIn.addEventListener('keydown',function(e){if(e.key==='Enter')sendMsg(msgIn.value)});
+
+// ═══ 语音 ═══
+var recognition=null,isRecording=false;
+var isHTTPS=(window.location.protocol==='https:'||window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1'||window.location.hostname==='0.0.0.0');
+
+if(('webkitSpeechRecognition' in window||'SpeechRecognition' in window)&&isHTTPS){
+  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  recognition=new SR();recognition.lang='zh-CN';recognition.interimResults=false;recognition.continuous=false;
+  recognition.onresult=function(e){var text=e.results[0][0].transcript;msgIn.value=text;sendMsg(text)};
+  recognition.onerror=function(e){isRecording=false;micBtn.classList.remove('recording');startWakeWord()};
+  recognition.onend=function(){isRecording=false;micBtn.classList.remove('recording');startWakeWord()};
+}
+
+micBtn.addEventListener('click',function(){
+  if(!recognition){msgIn.focus();showBubble('🎤 请用键盘语音按钮','happy');return}
+  if(isRecording){recognition.stop();return}
+  isRecording=true;micBtn.classList.add('recording');
+  try{recognition.start()}catch(_){isRecording=false;micBtn.classList.remove('recording')}
+});
+
+// ═══ 语音唤醒 ═══
+var wakeRecognition=null,wakeActive=false,WAKE_WORDS=['灵绘','哪吒','小灵','灵灵'];
+function startWakeWord(){
+  if(wakeActive||!isHTTPS||!('webkitSpeechRecognition' in window||'SpeechRecognition' in window))return;
+  try{
+    wakeRecognition=new SR();wakeRecognition.lang='zh-CN';wakeRecognition.continuous=true;wakeRecognition.interimResults=true;
+    wakeRecognition.onresult=function(e){
+      for(var i=e.resultIndex;i<e.results.length;i++){
+        var text=e.results[i][0].transcript.toLowerCase();
+        for(var j=0;j<WAKE_WORDS.length;j++){
+          if(text.indexOf(WAKE_WORDS[j].toLowerCase())!==-1){
+            wakeIndicator.classList.add('show');setTimeout(function(){wakeIndicator.classList.remove('show')},1500);
+            stopWakeWord();isRecording=true;micBtn.classList.add('recording');
+            try{recognition.start()}catch(_){isRecording=false;micBtn.classList.remove('recording');startWakeWord()}
+            return;
+          }
+        }
+      }
+    };
+    wakeRecognition.onerror=function(){wakeActive=false};
+    wakeRecognition.onend=function(){if(wakeActive){try{wakeRecognition.start()}catch(_){wakeActive=false}}};
+    wakeRecognition.start();wakeActive=true;
+  }catch(_){wakeActive=false}
+}
+function stopWakeWord(){wakeActive=false;try{if(wakeRecognition)wakeRecognition.stop()}catch(_){}}
+
+// ═══ 音乐播放器 ═══
+var audio=new Audio(),playlist=[],currentIdx=-1,playMode='loop';
+function formatTime(s){var m=Math.floor(s/60),sec=Math.floor(s%60);return(m<10?'0'+m:m)+':'+(sec<10?'0'+sec:sec)}
+function playCurrent(){
+  if(currentIdx<0||currentIdx>=playlist.length)return;
+  var song=playlist[currentIdx];audio.src=song.url;audio.play().catch(function(){showToast('⚠️ 播放失败')});
+  document.querySelector('#nowPlaying .title').textContent=song.title||'未知';
+  document.querySelector('#nowPlaying .artist').textContent=song.artist||'';
+  document.getElementById('btnPlay').textContent='⏸️';renderPlaylist();
+}
+function nextSong(){
+  if(playlist.length===0)return;
+  currentIdx=currentIdx>=playlist.length-1?0:currentIdx+1;playCurrent();
+}
+audio.addEventListener('timeupdate',function(){
+  document.getElementById('curTime').textContent=formatTime(audio.currentTime);
+  var pct=audio.duration?(audio.currentTime/audio.duration*100):0;
+  document.querySelector('#timeBar div').style.width=pct+'%';
+});
+audio.addEventListener('loadedmetadata',function(){document.getElementById('durTime').textContent=formatTime(audio.duration)});
+audio.addEventListener('ended',function(){
+  if(playMode==='single'){audio.currentTime=0;audio.play()}
+  else if(playMode==='shuffle'){currentIdx=Math.floor(Math.random()*playlist.length);playCurrent()}
+  else nextSong();
+});
+document.getElementById('btnPlay').addEventListener('click',function(){
+  if(playlist.length===0){showToast('📂 请先添加歌曲');return}
+  audio.paused?(audio.play(),this.textContent='⏸️'):(audio.pause(),this.textContent='▶️');
+});
+document.getElementById('btnPrev').addEventListener('click',function(){
+  if(playlist.length===0)return;currentIdx=currentIdx<=0?playlist.length-1:currentIdx-1;playCurrent();
+});
+document.getElementById('btnNext').addEventListener('click',nextSong);
+document.getElementById('btnMode').addEventListener('click',function(){
+  var modes={loop:'🔀',shuffle:'🔂',single:'🔁'};
+  playMode=playMode==='loop'?'shuffle':playMode==='shuffle'?'single':'loop';
+  this.textContent=modes[playMode];
+  showToast({loop:'列表循环',shuffle:'随机播放',single:'单曲循环'}[playMode]);
+});
+document.getElementById('volSlider').addEventListener('input',function(){audio.volume=this.value/100});
+document.getElementById('timeBar').addEventListener('click',function(e){
+  if(!audio.duration)return;var rect=this.getBoundingClientRect();
+  audio.currentTime=(e.clientX-rect.left)/rect.width*audio.duration;
+});
+
+// ═══ 网络搜索 ═══
+var searchVisible=false;
+document.getElementById('btnSearch').addEventListener('click',function(){
+  searchVisible=!searchVisible;document.getElementById('musicSearch').style.display=searchVisible?'block':'none';
+  if(searchVisible)document.getElementById('searchIn').focus();
+});
+document.getElementById('searchIn').addEventListener('keydown',function(e){
+  if(e.key!=='Enter')return;var q=this.value.trim();if(!q)return;
+  document.getElementById('searchResults').innerHTML='<div style="color:rgba(255,255,255,.4);padding:10px">🔍 搜索中...</div>';
+  fetch('https://itunes.apple.com/search?term='+encodeURIComponent(q)+'&media=music&limit=15&country=CN')
+    .then(function(r){return r.json()}).then(function(data){
+      var html='';
+      if(!data.results||data.results.length===0){html='<div style="color:rgba(255,255,255,.4);padding:10px">😕 未找到</div>'}
+      else{data.results.forEach(function(t,i){
+        html+='<div class=songItem data-url="'+t.previewUrl+'" data-title="'+t.trackName+'" data-artist="'+t.artistName+'"><span class=sIdx>'+(i+1)+'</span><div class=sInfo><div class=sTitle>'+t.trackName+'</div><div class=sArtist>'+t.artistName+'</div></div><span class=sBtn>▶️</span></div>';
+      })}
+      document.getElementById('searchResults').innerHTML=html;bindSongClicks();
+    }).catch(function(){document.getElementById('searchResults').innerHTML='<div style="color:#f44;padding:10px">❌ 搜索失败</div>'});
+});
+
+// ═══ 本地音乐 ═══
+document.getElementById('btnImport').addEventListener('click',function(){document.getElementById('fileInput').click()});
+document.getElementById('fileInput').addEventListener('change',function(e){
+  var files=Array.from(e.target.files);if(files.length===0)return;
+  var imported=[];
+  files.forEach(function(f){if(!f.type.startsWith('audio/'))return;var url=URL.createObjectURL(f);imported.push({title:f.name.replace(/\.[^.]+$/,''),artist:'本地音乐',url:url})});
+  if(imported.length===0){showToast('⚠️ 未选择音频');return}
+  playlist=playlist.concat(imported);if(currentIdx<0)currentIdx=0;renderPlaylist();showToast('✅ 已导入 '+imported.length+' 首');e.target.value='';
+});
+
+// ═══ 播放列表 ═══
+function renderPlaylist(){
+  var html='';
+  playlist.forEach(function(s,i){
+    var isActive=i===currentIdx;
+    html+='<div class=songItem'+(isActive?' style=background:rgba(255,136,0,.12)':'')+' data-idx='+i+'><span class=sIdx>'+(i+1)+'</span><div class=sInfo><div class=sTitle>'+(isActive?'🔊 ':'')+s.title+'</div><div class=sArtist>'+s.artist+'</div></div><span class=sBtn>'+(isActive&&!audio.paused?'⏸️':'▶️')+'</span></div>';
+  });
+  if(playlist.length===0)html='<div style="color:rgba(255,255,255,.35);padding:20px;text-align:center">📂 搜索歌曲或导入本地音乐</div>';
+  document.getElementById('playlist').innerHTML=html;bindSongClicks();
+}
+function bindSongClicks(){
+  document.querySelectorAll('.songItem[data-idx]').forEach(function(el){
+    el.addEventListener('click',function(){
+      var idx=parseInt(this.dataset.idx);
+      if(idx===currentIdx&&!audio.paused){audio.pause();document.getElementById('btnPlay').textContent='▶️';renderPlaylist();return}
+      if(idx===currentIdx&&audio.paused){audio.play();document.getElementById('btnPlay').textContent='⏸️';renderPlaylist();return}
+      currentIdx=idx;playCurrent();
+    });
+  });
+  document.querySelectorAll('#searchResults .songItem').forEach(function(el){
+    el.addEventListener('click',function(){
+      var title=this.dataset.title,artist=this.dataset.artist,url=this.dataset.url;
+      if(!url){showToast('⚠️ 无预览');return}
+      var found=playlist.findIndex(function(s){return s.url===url});
+      if(found>=0){currentIdx=found}else{playlist.push({title:title,artist:artist,url:url});currentIdx=playlist.length-1}
+      playCurrent();document.getElementById('searchResults').innerHTML='';document.getElementById('searchIn').value='';
+    });
+  });
+}
+
+// ═══ Canvas 发光小球 ═══
+var orbColor='#ff8800';
+(function drawOrb(){
+  var cv=document.getElementById('orbCanvas'),w=innerWidth,h=innerHeight;
+  cv.width=w;cv.height=h;var ctx=cv.getContext('2d');
+  var cx=w/2,cy=h*0.42,r=Math.min(w,h)*0.18;
+  var t=0;
+
+  function loop(){
+    t+=0.02;ctx.clearRect(0,0,w,h);
+
+    // 外层光晕（3 层）
+    for(var i=3;i>=0;i--){
+      var grd=ctx.createRadialGradient(cx,cy,r*0.4,cx,cy,r*(1.8+i*0.6));
+      grd.addColorStop(0,orbColor);grd.addColorStop(0.3,orbColor+'88');
+      grd.addColorStop(0.6,orbColor+'22');grd.addColorStop(1,'transparent');
+      ctx.fillStyle=grd;ctx.beginPath();ctx.arc(cx,cy,r*(1.8+i*0.6),0,Math.PI*2);ctx.fill();
+    }
+
+    // 主体球 + 呼吸
+    var breathe=1+Math.sin(t)*0.06;
+    var grd2=ctx.createRadialGradient(cx-r*0.25,cy-r*0.25,r*0.1,cx,cy,r*breathe);
+    grd2.addColorStop(0,'#ffffff');grd2.addColorStop(0.15,orbColor);
+    grd2.addColorStop(0.5,orbColor+'cc');grd2.addColorStop(1,orbColor+'44');
+    ctx.fillStyle=grd2;ctx.beginPath();ctx.arc(cx,cy,r*breathe,0,Math.PI*2);ctx.fill();
+
+    // 高光
+    ctx.fillStyle='rgba(255,255,255,0.3)';
+    ctx.beginPath();ctx.ellipse(cx-r*0.2,cy-r*0.35,r*0.25,r*0.12,0,0,Math.PI*2);ctx.fill();
+
+    // 情绪表情
+    ctx.fillStyle='rgba(0,0,0,0.5)';var es=r*0.08;
+    ctx.beginPath();ctx.arc(cx-r*0.18,cy-r*0.05,es,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(cx+r*0.18,cy-r*0.05,es,0,Math.PI*2);ctx.fill();
+    // 嘴
+    var mouthEmotions={happy:'arc',sad:'arcDown',angry:'flat',excited:'open'};
+    var mouth=mouthEmotions[currentEmotion]||'smile';
+    ctx.strokeStyle='rgba(0,0,0,0.5)';ctx.lineWidth=r*0.04;ctx.lineCap='round';
+    ctx.beginPath();
+    if(mouth==='arc'){ctx.arc(cx,cy+r*0.02,r*0.1,0.1,Math.PI-0.1)}
+    else if(mouth==='arcDown'){ctx.arc(cx,cy+r*0.25,r*0.1,Math.PI+0.1,-0.1)}
+    else if(mouth==='open'){ctx.ellipse(cx,cy+r*0.1,r*0.08,r*0.06,0,0,Math.PI*2)}
+    else{ctx.moveTo(cx-r*0.1,cy+r*0.12);ctx.lineTo(cx+r*0.1,cy+r*0.12)}
+    ctx.stroke();
+
+    requestAnimationFrame(loop);
+  }
+  loop();
+
+  window.addEventListener('resize',function(){
+    w=innerWidth;h=innerHeight;cv.width=w;cv.height=h;cx=w/2;cy=h*0.42;r=Math.min(w,h)*0.18;
+  });
+})();
+
+// ═══ 星空 ═══
+(function drawStars(){
+  var cv=document.getElementById('starsC'),w=innerWidth,h=innerHeight;cv.width=w;cv.height=h;
+  var ctx=cv.getContext('2d');
+  function stars(){ctx.clearRect(0,0,w,h);
+    for(var i=0;i<80;i++){var x=Math.random()*w,y=Math.random()*h,r=Math.random()*1.8+0.4;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle='rgba(255,100,30,'+(Math.random()*0.5+0.2)+')';ctx.fill()}
+  }
+  stars();
+  window.addEventListener('resize',function(){w=innerWidth;h=innerHeight;cv.width=w;cv.height=h;stars()});
+})();
+
+// ═══ 启动 ═══
+connectWS();
+if(isHTTPS)startWakeWord();
+setEmotion('idle');
+</script>
+</body></html>

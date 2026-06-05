@@ -20,8 +20,13 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        Button btnWebView = findViewById(R.id.btn_open_webview);
         Button btnStart = findViewById(R.id.btn_start);
         Button btnStop = findViewById(R.id.btn_stop);
+
+        btnWebView.setOnClickListener(v -> {
+            startActivity(new Intent(this, WebViewActivity.class));
+        });
 
         btnStart.setOnClickListener(v -> {
             if (checkOverlayPermission()) {
@@ -67,7 +72,7 @@ public class MainActivity extends AppCompatActivity {
             startService(intent);
         }
         Toast.makeText(this, getString(R.string.overlay_started), Toast.LENGTH_SHORT).show();
-        finish();  // 关闭设置页，精灵留在桌面
+        finish();
     }
 
     private void stopOverlayService() {
