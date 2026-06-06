@@ -79,14 +79,20 @@ jobs:
 
       - name: 确认产物
         run: |
-          ls -lh android_app/app/build/outputs/apk/debug/app-debug.apk
-          echo "APK 大小: $(du -h android_app/app/build/outputs/apk/debug/app-debug.apk | cut -f1)"
+          for LANG in zh en bn; do
+            APK="android_app/app/build/outputs/apk/${LANG}/debug/app-${LANG}-debug.apk"
+            if [ -f "$APK" ]; then
+              echo "✅ ${LANG}: $APK ($(du -h $APK | cut -f1))"
+            else
+              echo "❌ ${LANG}: 未找到 $APK"
+            fi
+          done
 
-      - name: 上传 Debug APK
+      - name: 上传 Debug APK（三语）
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.version.outputs.apk_name }}-debug
-          path: android_app/app/build/outputs/apk/debug/app-debug.apk
+          name: ${{ steps.version.outputs.apk_name }}-debug-all
+          path: android_app/app/build/outputs/apk/*/debug/*.apk
           retention-days: 30
 
   # ═══ 编译 Release（三语版本）═══
