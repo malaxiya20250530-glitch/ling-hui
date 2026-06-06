@@ -122,11 +122,18 @@ jobs:
         run: |
           UNSIGNED=android_app/app/build/outputs/apk/release/app-release-unsigned.apk
           SIGNED=${{ steps.version.outputs.apk_name }}-release.apk
-          BUILD_TOOLS=$ANDROID_HOME/build-tools/35.0.0
+          # 自动检测最新 build-tools 版本
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1 | sed 's|/$||')
 
           if [ ! -f "$UNSIGNED" ]; then
             echo "❌ 未找到未签名 APK: $UNSIGNED"
             ls -R android_app/app/build/outputs/apk/release/
+            exit 1
+          fi
+
+          if [ ! -f "$BUILD_TOOLS/apksigner" ]; then
+            echo "❌ 未找到 apksigner: $BUILD_TOOLS/apksigner"
+            ls -d $ANDROID_HOME/build-tools/*/
             exit 1
           fi
 
