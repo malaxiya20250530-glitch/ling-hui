@@ -145,7 +145,7 @@ public class AiEngine {
                     addToHistory("assistant", fallback);
                     mainHandler.post(() -> callback.onReply(fallback));
                 } else {
-                    mainHandler.post(() -> callback.onError("LLM 请求失败: " + e.getMessage()));
+                    mainHandler.post(() -> callback.onError("LLM request failed: " + e.getMessage()));
                 }
             }
             @Override public void onResponse(Call call, Response response) throws IOException {
@@ -238,7 +238,7 @@ public class AiEngine {
     // ---------- ASR 语音识别 ----------
     public void startListening(ListenCallback callback) {
         if (!SpeechRecognizer.isRecognitionAvailable(appContext)) {
-            callback.onError("语音识别不可用");
+            callback.onError("Speech recognition unavailable");
             return;
         }
 
@@ -266,19 +266,19 @@ public class AiEngine {
                 String msg;
                 switch (error) {
                     case SpeechRecognizer.ERROR_NETWORK:
-                        msg = "网络连接失败，请检查网络"; break;
+                        msg = "Network error, check connection"; break;
                     case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:
-                        msg = "网络超时"; break;
+                        msg = "Network timeout"; break;
                     case SpeechRecognizer.ERROR_NO_MATCH:
-                        msg = "没听清，再说一次好吗？"; break;
+                        msg = "Didn't catch that, try again?"; break;
                     case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
-                        msg = "说话时间过长"; break;
+                        msg = "Speaking too long"; break;
                     case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
-                        msg = "语音引擎正忙"; break;
+                        msg = "Speech engine busy"; break;
                     case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
-                        msg = "缺少录音权限"; break;
+                        msg = "Microphone permission missing"; break;
                     default:
-                        msg = "语音识别出错 (" + error + ")"; break;
+                        msg = "Speech recognition error (" + error + ")"; break;
                 }
                 Log.w(TAG, "ASR 错误: " + msg);
                 mainHandler.post(() -> callback.onError(msg));

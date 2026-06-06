@@ -10,11 +10,22 @@
 
 import json
 import logging
+import os
 import threading
 from collections import deque
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 logger = logging.getLogger("linghui.bridge")
+
+try:
+    from .music_downloader import (search_music, download_song,
+                                    get_download_status, list_downloaded,
+                                    get_music_file_url, get_lyrics)
+except ImportError:
+    from music_downloader import (search_music, download_song,
+                                   get_download_status, list_downloaded,
+                                   get_music_file_url, get_lyrics)
+
 
 # ── 全局消息队列 ──────────────────────────────────────
 # Python 管线 push → 队列 → Android GET /messages 拉取
@@ -55,12 +66,52 @@ class BridgeHandler(BaseHTTPRequestHandler):
     # 类级回调，由使用者注入
     on_action_result = None  # callable(action, success, message)
 
+
+    def do_OPTIONS(self):
+        """处理 CORS 预检请求"""
+        self.send_response(204)
+        self._add_cors_headers()
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Filename')
+        self.send_header('Access-Control-Max-Age', '86400')
+        self.end_headers()
+
     def do_GET(self):
+        from urllib.parse import urlparse, parse_qs
+
         if self.path == "/health":
             self._respond(200, {"status": "ok", "service": "linghui-bridge"})
         elif self.path == "/messages":
             msgs = drain_messages()
             self._respond(200, {"messages": msgs, "count": len(msgs)})
+        elif self.path == "/music/list":
+            self._respond(200, {"songs": list_downloaded()})
+        elif self.path.startswith("/music/lyrics/"):
+            filename = self.path[len("/music/lyrics/"):]
+            filepath = get_music_file_url(filename)
+            if filepath:
+                lyrics = get_lyrics(filepath)
+                self._respond(200, lyrics)
+            else:
+                self._respond(404, {"error": "file not found"})
+        elif self.path.startswith("/music/search"):
+            qs = parse_qs(urlparse(self.path).query)
+            query = qs.get("q", [""])[0]
+            if not query:
+                self._respond(400, {"error": "missing query"})
+            else:
+                songs = search_music(query)
+                self._respond(200, {"songs": songs, "query": query})
+        elif self.path.startswith("/music/status/"):
+            task_id = self.path.split("/")[-1]
+            self._respond(200, get_download_status(task_id))
+        elif self.path.startswith("/music/file/"):
+            filename = self.path[len("/music/file/"):]
+            filepath = get_music_file_url(filename)
+            if filepath:
+                self._serve_file(filepath)
+            else:
+                self._respond(404, {"error": "file not found"})
         else:
             self._respond(404, {"error": "未知端点"})
 
@@ -79,6 +130,13 @@ class BridgeHandler(BaseHTTPRequestHandler):
             self._handle_action_result(data)
         elif self.path == "/mood_update":
             self._handle_mood_update(data)
+        elif self.path == "/music/download":
+            url = data.get("url", "")
+            if not url:
+                self._respond(400, {"error": "missing url"})
+            else:
+                result = download_song(url)
+                self._respond(200, result)
         else:
             self._respond(404, {"error": "未知端点"})
 
@@ -106,12 +164,32 @@ class BridgeHandler(BaseHTTPRequestHandler):
         logger.info("收到情绪更新: mood=%s", mood)
         self._respond(200, {"received": True, "mood": mood})
 
+    def _add_cors_headers(self):
+        """添加 CORS 响应头"""
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Filename")
+
     def _respond(self, code: int, data: dict):
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._add_cors_headers()
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+
+    def _serve_file(self, filepath):
+        try:
+            with open(filepath, "rb") as f:
+                data = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/mpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self._add_cors_headers()
+            self.send_header("Content-Disposition",
+                           f"inline; filename={os.path.basename(filepath)}")
+            self.end_headers()
+            self.wfile.write(data)
+        except OSError:
+            self._respond(500, {"error": "read file failed"})
 
     def log_message(self, fmt, *args):
         logger.debug("HTTP %s", fmt % args)

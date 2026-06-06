@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">লিং হুই</string>
+    <string name="channel_name">লিং হুই স্পিরিট</string>
+    <string name="channel_description">লিং হুই ভার্চুয়াল স্পিরিট চলছে</string>
+    <string name="notification_title">লিং হুই</string>
+    <string name="notification_content">আপনার ভার্চুয়াল স্পিরিট আপনার সাথে আছে ✨</string>
+    <string name="overlay_permission_needed">লিং হুই দেখানোর জন্য ওভারলে অনুমতি প্রয়োজন~</string>
+    <string name="overlay_started">লিং হুই জেগেছে ✨</string>
+    <string name="overlay_stopped">লিং হুই বিশ্রাম নিচ্ছে~</string>
+    <string name="wake_word_default">লিং হুই</string>
+    <string name="wake_word_greeting">আমি এখানে~ 👋 কী নিয়ে কথা বলবে?</string>
+    <string name="chat_network_error">(নেটওয়ার্ক অস্থির মনে হচ্ছে… পরে আবার চেষ্টা করো?)</string>
+    <string name="chat_default_greeting">আমি এখানে~ কী নিয়ে কথা বলবে?</string>
+    <string name="action_success_prefix">✅ </string>
+    <string name="action_fail_prefix">❌ </string>
+    <string name="action_fail_suffix"> ব্যর্থ: </string>
+    <string name="action_unknown">অজানা অ্যাকশন</string>
+    <string name="action_app_opened">খোলা হয়েছে </string>
+    <string name="action_app_not_found">অ্যাপ পাওয়া যায়নি: </string>
+    <string name="action_searching">খুঁজছে: </string>
+    <string name="action_remind_set">রিমাইন্ডার সেট: </string>
+    <string name="action_clipboard_copied">ক্লিপবোর্ডে কপি করা হয়েছে</string>
+    <string name="action_screenshot_manual">দয়া করে ম্যানুয়ালি স্ক্রিনশট নিন</string>
+    <string name="action_vibrated">ভাইব্রেট করা হয়েছে </string>
+    <string name="action_brightness_set">উজ্জ্বলতা সেট করা হয়েছে </string>
+    <string name="action_volume_set">ভলিউম সেট করা হয়েছে </string>
+    <string name="action_market_search">অ্যাপ স্টোরে খুঁজছে </string>
+    <string name="action_brightness_permission">উজ্জ্বলতা পরিবর্তনের জন্য \"সিস্টেম সেটিংস পরিবর্তন\" অনুমতি প্রয়োজন</string>
+    <string name="action_screenshot_permission">📸 স্ক্রিনশটের জন্য সিস্টেম অনুমতি প্রয়োজন</string>
+    <string name="remind_default_title">লিং হুই রিমাইন্ডার</string>
+    <!-- Floating menu -->
+    <string name="btn_music">🎵 সঙ্গীত</string>
+    <string name="btn_voice">🎤 ভয়েস</string>
+    <string name="btn_chat">💬 চ্যাট</string>
+    <string name="music_paused">সঙ্গীত বিরাম ⏸</string>
+    <string name="music_playing">🎵 চলছে</string>
+    <string name="music_not_ready">সঙ্গীত প্রস্তুত নয়~</string>
+    <string name="music_play_failed">চালানো ব্যর্থ: </string>
+    <string name="listening">শুনছি… 🎤</string>
+    <string name="im_listening">আমি শুনছি~ 👂</string>
+    <string name="you_said">তুমি বলেছ: </string>
+    <string name="network_issue">নেটওয়ার্ক সমস্যা~ 😅</string>
+    <string name="didnt_catch">শুনতে পাইনি, আবার বলো?</string>
+    <string name="roam_paused">বিচরণ বন্ধ ⏸</string>
+    <string name="roam_resumed">বিচরণ চলছে ▶</string>
+    <string name="im_back">আমি ফিরে এসেছি 👋</string>
+    <string name="see_you">পরে দেখা হবে~ 👋</string>
+    <string name="long_press">আমাকে লং প্রেস করছ কেন~ 😆</string>
+    <string name="wake_greeting">আমি এখানে~ 👋</string>
+    <!-- Automation -->
+    <string name="vol_up">ভলিউম বাড়ানো হয়েছে</string>
+    <string name="vol_down">ভলিউম কমানো হয়েছে</string>
+    <string name="app_opened">অ্যাপ খোলা হয়েছে</string>
+    <string name="link_opened">লিংক খোলা হয়েছে</string>
+    <string name="searched">খোঁজা হয়েছে: </string>
+    <string name="notif_sent">নোটিফিকেশন পাঠানো হয়েছে</string>
+    <string name="clipboard_copied">ক্লিপবোর্ডে কপি করা হয়েছে</string>
+    <string name="action_failed">অ্যাকশন ব্যর্থ: </string>
+    <string name="no_package">কোনো প্যাকেজ নির্দিষ্ট নয়</string>
+    <string name="no_url">কোনো URL নির্দিষ্ট নয়</string>
+    <string name="no_query">কোনো সার্চ কোয়েরি নয়</string>
+    <string name="no_clipboard_text">ক্লিপবোর্ডে কোনো টেক্সট নেই</string>
+    <string name="vibrate_unsupported">ডিভাইস ভাইব্রেশন সাপোর্ট করে না</string>
+    <!-- Buttons -->
+    <string name="btn_pause">⏸ বিরাম</string>
+    <string name="btn_roam">▶ বিচরণ</string>
+    <string name="btn_hide">🙈 লুকাও</string>
+    <string name="btn_show">👀 দেখাও</string>
+    <string name="btn_open_linghui">🔮 লিং হুই</string>
+    <string name="roaming_status">বিচরণ করছে…</string>
+    <string name="paused_status">বিরাম</string>
+    <!-- Main screen -->
+    <string name="main_title">🎨 লিং হুই</string>
+    <string name="main_subtitle">এআই ভার্চুয়াল ডেস্কটপ স্পিরিট · মিনি সংস্করণ</string>
+    <string name="btn_open_webview">🔮 লিং হুই খুলুন</string>
+    <string name="btn_start">✨ ডেস্কটপ স্পিরিট জাগাও</string>
+    <string name="btn_stop">লিং হুইকে বিশ্রাম দাও</string>
+    <!-- Permission -->
+    <string name="perm_overlay_title">ওভারলে অনুমতি প্রয়োজন</string>
+    <string name="perm_go_settings">সেটিংসে যান</string>
+    <string name="perm_cancel">বাতিল</string>
+    <string name="perm_battery_title">ব্যাটারি অপ্টিমাইজেশন বন্ধ করুন</string>
+    <string name="perm_battery_skip">এড়িয়ে যান</string>
+    <string name="perm_mic_needed">মাইক্রোফোন অনুমতি প্রয়োজন, সেটিংসে সক্ষম করুন</string>
+    <string name="battery_warning"> ব্যাকগ্রাউন্ড অ্যাপ বন্ধ করে দেবে। লিং হুইকে "আনরেস্ট্রিক্টেড" সেট করুন।</string>
+</resources>

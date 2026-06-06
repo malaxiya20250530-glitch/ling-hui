@@ -45,7 +45,7 @@ public class LingHuiGLView extends GLSurfaceView implements ICharacterView {
 
         // 着色器
         private int program;
-        private int uMVPMatrix, uMVMatrix, uLightPos, uLightColor, uObjectColor;
+        private int uMVPMatrix, uMVMatrix, uLightPos, uLightColor, uObjectColor, uTime;
         private int aPosition, aNormal;
 
         // 矩阵
@@ -147,12 +147,16 @@ public class LingHuiGLView extends GLSurfaceView implements ICharacterView {
             // 传递 uniform
             GLES20.glUniformMatrix4fv(uMVPMatrix, 1, false, mvpMatrix, 0);
             GLES20.glUniformMatrix4fv(uMVMatrix, 1, false, mvMatrix, 0);
-            GLES20.glUniform3f(uLightPos, 3.2f, 1.2f, 2.5f);
-            GLES20.glUniform3f(uLightColor, 1.0f, 1.0f, 1.0f);
+            // 彩虹色随时间旋转
+            float timeSec = (System.currentTimeMillis() % 100000) / 1000.0f;
 
-            // 角色颜色随心情变化
-            float[] color = getMoodColor();
-            GLES20.glUniform3f(uObjectColor, color[0], color[1], color[2]);
+            // 光源绕球体旋转，增强 3D 立体感
+            float lightAngle = timeSec * 0.6f;
+            float lx = (float) (3.0 * Math.cos(lightAngle));
+            float lz = (float) (3.0 * Math.sin(lightAngle));
+            GLES20.glUniform3f(uLightPos, lx, 1.0f, lz);
+            GLES20.glUniform3f(uLightColor, 1.0f, 1.0f, 1.0f);
+            GLES20.glUniform1f(uTime, timeSec);
 
             // 绑定顶点
             vertexBuffer.position(0);
@@ -206,28 +210,44 @@ public class LingHuiGLView extends GLSurfaceView implements ICharacterView {
 
             String fragSrc =
                 "precision mediump float;" +
-                "uniform vec3 uLightPos, uLightColor, uObjectColor;" +
+                "uniform vec3 uLightPos, uLightColor;" +
+                "uniform float uTime;" +
                 "varying vec3 vNormal, vPosition;" +
+                "vec3 hue2rgb(float h) {" +
+                "  vec3 rgb = clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);" +
+                "  return rgb;" +
+                "}" +
                 "void main() {" +
+                // 马赛克：量化屏幕坐标，每 8px 一个色块
+                "  vec2 mosaicUV = floor(gl_FragCoord.xy / 8.0) * 8.0;" +
+                // 用量化后坐标重算法线方向（产生块状感）
+                "  float mosaicAngle = atan(mosaicUV.y - 200.0, mosaicUV.x - 200.0);" +
                 "  vec3 normal = normalize(vNormal);" +
                 "  vec3 lightDir = normalize(uLightPos - vPosition);" +
                 "  vec3 viewDir = normalize(-vPosition);" +
-                // 漫反射（半兰伯特让暗面不死黑）
+                // 条状七彩：7条离散色带
+                "  float hue = mosaicAngle / 6.2832 + 0.5 + uTime * 0.08;" +
+                "  hue = fract(hue);" +
+                "  float stripe = floor(hue * 18.0) / 18.0;" +
+                "  float blend = fract(hue * 18.0);" +
+                "  blend = smoothstep(0.0, 0.35, blend) * smoothstep(1.0, 0.65, blend);" +
+                "  vec3 rainbow = mix(hue2rgb(stripe + 0.03), hue2rgb(stripe + 0.09), blend);" +
+                // 漫反射（半兰伯特）
                 "  float diff = max(dot(normal, lightDir), 0.0);" +
                 "  float halfLambert = diff * 0.65 + 0.35;" +
                 "  vec3 diffuse = halfLambert * uLightColor;" +
-                // 环境光（压低让暗面更深）
-                "  vec3 ambient = 0.06 * uLightColor;" +
-                // 高光（Blinn-Phong，更锐利）
+                // 环境光
+                "  vec3 ambient = 0.12 * uLightColor;" +
+                // 高光（Blinn-Phong）
                 "  vec3 halfVec = normalize(lightDir + viewDir);" +
-                "  float spec = pow(max(dot(normal, halfVec), 0.0), 80.0);" +
-                "  vec3 specular = 0.75 * spec * uLightColor;" +
-                // 边缘光（rim light）增强轮廓
+                "  float spec = pow(max(dot(normal, halfVec), 0.0), 120.0);" +
+                "  vec3 specular = 0.85 * spec * uLightColor;" +
+                // 边缘光
                 "  float rim = 1.0 - abs(dot(normal, viewDir));" +
-                "  rim = pow(rim, 3.5) * 0.30;" +
+                "  rim = pow(rim, 3.5) * 0.25;" +
                 "  vec3 rimLight = rim * uLightColor;" +
                 // 组合
-                "  vec3 result = (ambient + diffuse + specular + rimLight) * uObjectColor;" +
+                "  vec3 result = (ambient * 0.5 + diffuse + specular + rimLight) * rainbow;" +
                 "  gl_FragColor = vec4(result, 0.92);" +
                 "}";
 
@@ -246,6 +266,7 @@ public class LingHuiGLView extends GLSurfaceView implements ICharacterView {
             uLightPos   = GLES20.glGetUniformLocation(program, "uLightPos");
             uLightColor = GLES20.glGetUniformLocation(program, "uLightColor");
             uObjectColor= GLES20.glGetUniformLocation(program, "uObjectColor");
+            uTime      = GLES20.glGetUniformLocation(program, "uTime");
         }
 
         private int compileShader(int type, String src) {

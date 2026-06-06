@@ -1,0 +1,4 @@
+interface:
+  display_name: "灵绘构建"
+  short_description: "编译灵绘 APK——支持 debug/release、签名、产物验证"
+  default_prompt: "帮我编译灵绘 APK"

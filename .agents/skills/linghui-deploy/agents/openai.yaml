@@ -1,0 +1,4 @@
+interface:
+  display_name: "灵绘部署"
+  short_description: "构建并安装灵绘 APK 到 Android 设备——一键编译签名 adb 安装"
+  default_prompt: "帮我编译灵绘 APK 并装到手机上"

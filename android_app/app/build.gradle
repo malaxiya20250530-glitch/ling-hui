@@ -2,6 +2,9 @@ plugins {
     id 'com.android.application'
 }
 
+// ═══ Unity 检测 ═══
+def unityEnabled = gradle.ext.has('unityEnabled') && gradle.ext.unityEnabled
+
 android {
     namespace 'com.linghui.app'
     compileSdk 34
@@ -12,19 +15,33 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0.0"
+
+        // 运行时标记：Unity 模式 or 小球模式
+        buildConfigField "boolean", "UNITY_ENABLED", "${unityEnabled}"
     }
 
     buildTypes {
+        debug {
+            minifyEnabled false
+            // Debug 版本号带模式标识
+            versionNameSuffix unityEnabled ? "-unity" : "-mini"
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.debug
+            versionNameSuffix unityEnabled ? "-unity" : "-mini"
         }
     }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // AGP 8+ 需显式启用 BuildConfig
+    buildFeatures {
+        buildConfig = true
     }
 }
 
@@ -34,6 +51,19 @@ dependencies {
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'com.google.code.gson:gson:2.10.1'
 
-    // Unity 模块（Unity 导出后取消注释）
-    // implementation project(':unityLibrary')
+    // Unity 3D 模块 — 自动检测，无需手动开关
+    if (unityEnabled) {
+        implementation project(':unityLibrary')
+    }
+}
+
+// 构建时打印模式信息
+afterEvaluate {
+    println "╔═══════════════════════════════════╗"
+    if (unityEnabled) {
+        println "║  🎮 灵绘 · Unity 3D 角色版      ║"
+    } else {
+        println "║  🔮 灵绘 · OpenGL 小球版        ║"
+    }
+    println "╚═══════════════════════════════════╝"
 }

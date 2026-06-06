@@ -215,12 +215,12 @@ public class AiCommHandler {
             int code = conn.getResponseCode();
             if (code != 200) {
                 android.util.Log.w("AiCommHandler",
-                    "管线回应非 200: " + code);
+                    "Pipeline non-200: " + code);
             }
             conn.disconnect();
         } catch (Exception e) {
             android.util.Log.w("AiCommHandler",
-                "回传管线失败: " + e.getMessage());
+                "Pipeline send-back failed: " + e.getMessage());
         }
     }
 }

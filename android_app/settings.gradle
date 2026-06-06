@@ -17,14 +17,28 @@ dependencyResolutionManagement {
 rootProject.name = "LingHui"
 include ':app'
 
-// ═══════════════════════════════════
-// Unity 集成（默认关闭，导出后手动启用）
-// 1. 在 Unity 中 Export Project → 选择 unity_client 目录
-// 2. 取消下面三行注释
-// 3. 推送后 CI 会自动包含 Unity 3D 渲染
-// ═══════════════════════════════════
-// def unityLib = new File(rootDir, '../unity_client/unityLibrary')
-// if (unityLib.exists() && new File(unityLib, 'build.gradle').exists()) {
-//     include ':unityLibrary'
-//     project(':unityLibrary').projectDir = unityLib
-// }
+// ═══════════════════════════════════════════════════
+// Unity 3D 模块 — 自动检测，无需手动开关
+//
+// 工作流:
+//   1. 桌面 Unity Editor → Export Project → unity_client/
+//   2. git add unity_client/ && git push
+//   3. GitHub Actions 自动检测 → 编译 Unity 版 APK
+//   4. 没有 unity_client 时 → 编译小球版 APK（默认）
+//
+// 检测逻辑: 检查 unityLibrary/build.gradle 是否存在
+// ═══════════════════════════════════════════════════
+
+def unityClientDir = new File(rootDir, '../unity_client')
+def unityLibDir = new File(unityClientDir, 'unityLibrary')
+def unityLibBuild = new File(unityLibDir, 'build.gradle')
+
+if (unityClientDir.exists() && unityLibBuild.exists()) {
+    include ':unityLibrary'
+    project(':unityLibrary').projectDir = unityLibDir
+    gradle.ext.unityEnabled = true
+    logger.lifecycle("🎮 检测到 Unity 模块 → 编译 3D 角色版")
+} else {
+    gradle.ext.unityEnabled = false
+    logger.lifecycle("🔮 未检测到 Unity 模块 → 编译 OpenGL 小球版")
+}

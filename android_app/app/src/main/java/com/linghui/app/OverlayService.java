@@ -1,23 +1,27 @@
 package com.linghui.app;
 
+import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
 import android.app.Service;
 import android.content.ClipData;
 import android.content.ClipboardManager;
-import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.PixelFormat;
 import android.media.AudioManager;
+import android.media.MediaPlayer;
+import android.media.audiofx.Equalizer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
-import android.os.VibrationEffect;
 import android.os.Vibrator;
-import android.os.VibratorManager;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -25,6 +29,7 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -34,54 +39,98 @@ import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
 
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
+
 import com.linghui.app.comm.AiCommHandler;
 
-/** 悬浮窗前台服务：管理模式(Unity/OpenGL)的显示、拖拽和交互 */
+/** 悬浮窗前台服务：小球 + 气泡菜单（音乐/语音/对话） */
 public class OverlayService extends Service {
+
+    private static OverlayService instance;
+    public static OverlayService getInstance() { return instance; }
 
     private static final String TAG = "OverlayService";
     private static final String CHANNEL_ID = "linghui_overlay";
     private static final int NOTIFY_ID = 1001;
 
     private WindowManager windowManager;
-    private FrameLayout overlayRoot;
-    private ICharacterView charView;   // 统一接口 —— Unity 或 GL
-    private boolean useUnity;          // 当前渲染模式
-    private LinearLayout chatBubble;
-    private TextView chatText;
+    private LinearLayout overlayRoot;
+    private ICharacterView charView;
+    private LinearLayout menuBubble;
+    private TextView menuTitle;
+    private Button btnMusic, btnVoice, btnChat;
     private AiEngine aiEngine;
     private AiCommHandler commHandler;
+    private MediaPlayer mediaPlayer;
+    private boolean musicPlaying;
+    private boolean mediaPlayerPrepared;
+    private Equalizer equalizer;
 
     // 拖拽
     private int initialX, initialY;
     private float initialTouchX, initialTouchY;
     private boolean isDragging;
     private static final int DRAG_THRESHOLD = 10;
-
-    // 对话气泡
     private boolean bubbleVisible;
 
-    // 自动漫游
-    private android.os.Handler roamHandler;
+    // 漫游
+    private Handler roamHandler;
     private WindowManager.LayoutParams wmParams;
     private float roamTime;
     private float roamSpeedX = 0.8f, roamSpeedY = 1.1f;
     private float roamAmpX = 60f, roamAmpY = 50f;
     private boolean isRoaming = true;
+    private boolean wakeWordActive;
+    private boolean overlayVisible = true;
+    private BroadcastReceiver notifReceiver;
+    // 音乐可视化：7 个彩色小球
+    private View[] vizBalls;
+    private Handler vizHandler;
+    private boolean vizActive;
+    private static final int[] VIZ_COLORS = {
+        0xFFE53935, 0xFFFB8C00, 0xFFFFEB3B,  // 红橙黄
+        0xFF43A047, 0xFF00ACC1, 0xFF1E88E5,  // 绿青蓝
+        0xFF8E24AA                               // 紫
+    };
+    private float[] vizPhases = {0f, 0.6f, 1.2f, 1.8f, 2.4f, 3.0f, 3.6f};
     private int screenW, screenH, charSize;
+
 
     @Override
     public void onCreate() {
         super.onCreate();
-        Log.i(TAG, "灵绘悬浮窗服务启动");
+        instance = this;
+        Log.i(TAG, "灵绘悬浮球启动");
 
+        // 第一步：前台服务（必须立即完成，否则 ANR）
+        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        createNotificationChannel();
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(NOTIFY_ID, buildNotification(),
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+        } else {
+            startForeground(NOTIFY_ID, buildNotification());
+        }
+
+        // 第二步：创建悬浮窗（轻量视觉初始化）
+        initOverlay();
+
+        // 第三步：延迟初始化 AI 引擎和通信模块（避免 onCreate 阻塞）
+        new Handler().postDelayed(this::delayedInit, 500);
+    }
+
+    private void delayedInit() {
+        // 服务可能已被销毁，检查窗口是否还在
+        if (overlayRoot == null || !overlayRoot.isAttachedToWindow()) {
+            Log.w(TAG, "服务已销毁，跳过延迟初始化");
+            return;
+        }
         aiEngine = new AiEngine(this);
         commHandler = new AiCommHandler();
 
-        // 渲染回调 — 情绪/说话状态/回复
+        // AI 渲染回调
         commHandler.setRenderCallback(new AiCommHandler.RenderCallback() {
             @Override public void onMood(String mood) {
-                Log.d(TAG, "情绪更新: " + mood);
                 if (charView != null) charView.onInteract();
             }
             @Override public void onTalking(boolean talking, float intensity) {
@@ -91,465 +140,735 @@ public class OverlayService extends Service {
             }
             @Override public void onReply(String text) {
                 showBubble(text);
-                aiEngine.speak(text);
+                if (aiEngine != null) aiEngine.speak(text);
                 if (charView != null) charView.onReplyReceived();
             }
         });
 
-        // AI 回调 — 用户交互事件
         commHandler.setAiCallback(new AiCommHandler.AiCallback() {
-            @Override public void onUserTap() {
-                onOverlayClick();
-            }
+            @Override public void onUserTap() { onOverlayClick(); }
             @Override public void onUserLongPress() {
-                showBubble("长按我干嘛啦~ 😆");
+                showBubble(getString(R.string.long_press));
             }
         });
 
-        // 操作回调 — 执行自动化操作
         commHandler.setActionCallback((action, params) -> {
-            Log.i(TAG, "收到操作指令: " + action);
-            String resultMsg = executeAction(action, params);
+            String resultMsg = executeAction(action, null);
             commHandler.onActionResult(action, resultMsg != null, resultMsg != null ? resultMsg : getString(R.string.action_unknown));
         });
 
-        // 操作结果回调
         commHandler.setActionResultCallback((action, success, message) -> {
-            String bubbleText = success
-                ? getString(R.string.action_success_prefix) + message
-                : getString(R.string.action_fail_prefix) + action + getString(R.string.action_fail_suffix) + message;
-            showBubble(bubbleText);
-            Log.i(TAG, "操作结果: " + action + " success=" + success + " " + message);
+            showBubble(success ? getString(R.string.action_success_prefix) + message : getString(R.string.action_fail_prefix) + action + getString(R.string.action_fail_suffix) + message);
         });
 
-        // 启动轮询，从 Python 桥拉取消息
         commHandler.startPolling();
-        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
-
-        createNotificationChannel();
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(NOTIFY_ID, buildNotification(),
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
-        } else {
-            startForeground(NOTIFY_ID, buildNotification());
-        }
-
-        createOverlay();
+        initMediaPlayer();
+        startWakeWordIfPermitted();
+        registerNotifReceiver();
+        Log.i(TAG, "AI引擎和通信模块初始化完成");
     }
 
-    // ---------- 通知栏 ----------
-    private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID, getString(R.string.channel_name), NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription(getString(R.string.channel_description));
-            getSystemService(NotificationManager.class).createNotificationChannel(channel);
+    // ═══ MediaPlayer ═══
+    private void initMediaPlayer() {
+        try {
+            mediaPlayer = new MediaPlayer();
+            // 播放内置音乐
+            android.content.res.AssetFileDescriptor afd = getAssets().openFd("linghui/music/SoundHelix-Song-8.mp3");
+            mediaPlayer.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
+            afd.close();
+            mediaPlayer.setLooping(true);
+            mediaPlayer.setOnPreparedListener(mp -> {
+                mediaPlayerPrepared = true;
+                try {
+                    equalizer = new Equalizer(0, mp.getAudioSessionId());
+                    equalizer.setEnabled(true);
+                    Log.i(TAG, "均衡器初始化成功, bands=" + equalizer.getNumberOfBands());
+                } catch (Exception e) {
+                    Log.w(TAG, "均衡器不可用: " + e.getMessage());
+                }
+                Log.i(TAG, "音乐准备就绪");
+            });
+            mediaPlayer.prepareAsync();
+        } catch (Exception e) {
+            Log.w(TAG, "音乐初始化失败: " + e.getMessage());
         }
     }
 
-    private Notification buildNotification() {
-        Intent intent = new Intent(this, MainActivity.class);
-        PendingIntent pi = PendingIntent.getActivity(this, 0, intent,
-            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        return new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.notification_title))
-            .setContentText(getString(R.string.notification_content))
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentIntent(pi)
-            .setOngoing(true)
-            .build();
+    private void toggleMusic() {
+        if (mediaPlayer == null || !mediaPlayerPrepared) {
+            showBubble(getString(R.string.music_not_ready));
+            return;
+        }
+        try {
+            if (musicPlaying) {
+                if (equalizer != null) try { equalizer.setEnabled(false); } catch (Exception e) {}
+                mediaPlayer.pause();
+                musicPlaying = false;
+                btnMusic.setText(getString(R.string.btn_music));
+                showBubble(getString(R.string.music_paused));
+                stopVisualizer();
+            } else {
+                mediaPlayer.start();
+                if (equalizer != null) try { equalizer.setEnabled(true); } catch (Exception e) {}
+                musicPlaying = true;
+                btnMusic.setText(getString(R.string.btn_pause));
+                showBubble(getString(R.string.music_playing));
+                startVisualizer();
+            }
+        } catch (Exception e) {
+            showBubble(getString(R.string.music_play_failed) + e.getMessage());
+        }
     }
 
-    // ---------- 悬浮窗创建（双模式）----------
-    private void createOverlay() {
-        overlayRoot = new FrameLayout(this);
-        overlayRoot.setBackgroundColor(0x00000000);  // 透明
+    // ═══ 悬浮窗初始化 ═══
+    private void initOverlay() {
+        DisplayMetrics metrics = new DisplayMetrics();
+        windowManager.getDefaultDisplay().getRealMetrics(metrics);
+        screenW = metrics.widthPixels;
+        screenH = metrics.heightPixels;
+        charSize = dpToPx(180); // 球体扩大50%
 
-        // 优先尝试 Unity 渲染
-        UnityPlayerView unityView = new UnityPlayerView(this);
-        if (unityView.isUnityAvailable()) {
-            charView = unityView;
-            useUnity = true;
-            Log.i(TAG, "🎮 使用 Unity 3D 渲染模式");
-        } else {
-            // 降级到 OpenGL 球体
-            LingHuiGLView glView = new LingHuiGLView(this);
-            charView = glView;
-            useUnity = false;
-            Log.i(TAG, "🔵 使用 OpenGL 渲染模式（Unity 未集成）");
-        }
+        overlayRoot = new LinearLayout(this);
+        overlayRoot.setOrientation(LinearLayout.VERTICAL);
 
-        charSize = dpToPx(100);
-        FrameLayout.LayoutParams charParams = new FrameLayout.LayoutParams(charSize, charSize);
+        // 小球（OpenGL）
+        charView = new LingHuiGLView(this);
+        LinearLayout.LayoutParams charParams = new LinearLayout.LayoutParams(charSize, charSize);
         charParams.gravity = Gravity.CENTER;
         overlayRoot.addView((View) charView, charParams);
 
-        // 对话气泡 — 圆角渐变 + 阴影 + 淡入动画
-        chatBubble = new LinearLayout(this);
-        chatBubble.setOrientation(LinearLayout.VERTICAL);
-        // 圆角渐变背景
-        GradientDrawable bg = new GradientDrawable();
-        bg.setShape(GradientDrawable.RECTANGLE);
-        bg.setCornerRadius(dpToPx(16));
-        bg.setColors(new int[]{0xF07050A0, 0xF0404080}); // 紫→深紫
-        bg.setStroke(dpToPx(1), 0x80FFFFFF); // 半透白边框
-        chatBubble.setBackground(bg);
-        chatBubble.setPadding(dpToPx(14), dpToPx(10), dpToPx(14), dpToPx(10));
-        chatBubble.setElevation(dpToPx(6)); // 阴影
-        chatText = new TextView(this);
-        chatText.setTextColor(0xFFFFFFFF);
-        chatText.setTextSize(13);
-        chatText.setLineSpacing(dpToPx(2), 1f);
-        chatText.setMaxWidth(dpToPx(220));
-        chatText.setShadowLayer(1f, 0f, 1f, 0x40000000); // 文字阴影
-        chatText.setText("✨ 你好呀~ 我是灵绘");
-        chatBubble.addView(chatText);
-        chatBubble.setVisibility(View.GONE);
-        FrameLayout.LayoutParams bubbleParams = new FrameLayout.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT);
-        bubbleParams.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        bubbleParams.topMargin = charSize + dpToPx(6);
-        overlayRoot.addView(chatBubble, bubbleParams);
+        // 音乐可视化小球
+        initVisualizer();
+        // 气泡菜单嵌入 overlayRoot（非独立窗口）
+        createMenuBubble();
 
-        // 窗口参数
         wmParams = new WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            charSize, WindowManager.LayoutParams.WRAP_CONTENT,
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT);
-
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        );
         wmParams.gravity = Gravity.TOP | Gravity.START;
+        wmParams.x = (screenW - charSize) / 2;
+        wmParams.y = screenH / 3;
+        wmParams.windowAnimations = 0;
 
-        DisplayMetrics dm = new DisplayMetrics();
-        windowManager.getDefaultDisplay().getMetrics(dm);
-        wmParams.x = dm.widthPixels / 2 - charSize / 2;
-        wmParams.y = dm.heightPixels / 3;
-        screenW = dm.widthPixels;
-        screenH = dm.heightPixels;
-
-        overlayRoot.setOnTouchListener(new OverlayTouchListener(wmParams));
-        overlayRoot.setOnClickListener(v -> onOverlayClick());
+        overlayRoot.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                // 菜单显示时，触摸菜单区域交给按钮处理
+                float localY = event.getY();
+                if (bubbleVisible && localY > charSize + dpToPx(4)) {
+                    return false;
+                }
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        initialX = wmParams.x;
+                        initialY = wmParams.y;
+                        initialTouchX = event.getRawX();
+                        initialTouchY = event.getRawY();
+                        isDragging = false;
+                        isRoaming = false;
+                        return true;
+                    case MotionEvent.ACTION_MOVE:
+                        float dx = event.getRawX() - initialTouchX;
+                        float dy = event.getRawY() - initialTouchY;
+                        if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
+                            isDragging = true;
+                        }
+                        if (isDragging) {
+                            wmParams.x = initialX + (int) dx;
+                            wmParams.y = initialY + (int) dy;
+                            windowManager.updateViewLayout(overlayRoot, wmParams);
+                        }
+                        return true;
+                    case MotionEvent.ACTION_UP:
+                        // 用总位移判断：< 30px 视为点击，否则为拖拽
+                        float totalDx = Math.abs(event.getRawX() - initialTouchX);
+                        float totalDy = Math.abs(event.getRawY() - initialTouchY);
+                        if (totalDx < 30 && totalDy < 30) {
+                            onOverlayClick();
+                        } else {
+                            // 贴边
+                            if (!bubbleVisible) {
+                                int cx = wmParams.x + charSize / 2;
+                                wmParams.x = cx < screenW / 2 ? 0 : screenW - charSize;
+                                windowManager.updateViewLayout(overlayRoot, wmParams);
+                                isRoaming = true;
+                                roamTime = 0;
+                                startRoaming();
+                            }
+                        }
+                        return true;
+                }
+                return false;
+            }
+        });
 
         windowManager.addView(overlayRoot, wmParams);
         startRoaming();
     }
 
-    // ---------- 拖拽 ----------
-    private class OverlayTouchListener implements View.OnTouchListener {
-        private final WindowManager.LayoutParams params;
-        OverlayTouchListener(WindowManager.LayoutParams p) { this.params = p; }
+    // ═══ 气泡菜单 ═══
+    // ═══ 音乐可视化 ═══
 
-        @Override
-        public boolean onTouch(View v, MotionEvent event) {
-            switch (event.getAction()) {
-                case MotionEvent.ACTION_DOWN:
-                    initialX = params.x; initialY = params.y;
-                    initialTouchX = event.getRawX(); initialTouchY = event.getRawY();
-                    isDragging = false;
-                    // 拖拽时暂停漫游
-                    isRoaming = false;
-                    return true;
-                case MotionEvent.ACTION_MOVE:
-                    float dx = event.getRawX() - initialTouchX;
-                    float dy = event.getRawY() - initialTouchY;
-                    if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
-                        isDragging = true;
-                    }
-                    if (isDragging) {
-                        params.x = initialX + (int) dx;
-                        params.y = initialY + (int) dy;
-                        windowManager.updateViewLayout(overlayRoot, params);
-                    }
-                    return true;
-                case MotionEvent.ACTION_UP:
-                    if (!isDragging) v.performClick();
-                    // 松手后恢复漫游
-                    isRoaming = true;
-                    return true;
-            }
-            return false;
+    private void initVisualizer() {
+        vizBalls = new View[7];
+        LinearLayout vizRow = new LinearLayout(this);
+        vizRow.setGravity(Gravity.CENTER);
+        vizRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(36));
+        rowParams.topMargin = dpToPx(4);
+        vizRow.setLayoutParams(rowParams);
+        vizRow.setVisibility(View.GONE);
+
+        for (int i = 0; i < 7; i++) {
+            View ball = new View(this);
+            int size = dpToPx(12);
+            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(size, size);
+            bp.setMargins(dpToPx(4), 0, dpToPx(4), 0);
+            bp.gravity = Gravity.BOTTOM;
+            ball.setLayoutParams(bp);
+            GradientDrawable gd = new GradientDrawable();
+            gd.setShape(GradientDrawable.OVAL);
+            gd.setColor(VIZ_COLORS[i]);
+            ball.setBackground(gd);
+            ball.setAlpha(0.85f);
+            vizRow.addView(ball);
+            vizBalls[i] = ball;
+        }
+        overlayRoot.addView(vizRow, 1); // 插在 GL 球和气泡菜单之间
+        vizHandler = new Handler();
+    }
+
+    private void startVisualizer() {
+        if (vizBalls == null) return;
+        for (View b : vizBalls) b.getParent().requestLayout();
+        ((View) vizBalls[0].getParent()).setVisibility(View.VISIBLE);
+        vizActive = true;
+        animateVisualizer();
+    }
+
+    private void stopVisualizer() {
+        vizActive = false;
+        if (vizHandler != null) vizHandler.removeCallbacksAndMessages(null);
+        if (vizBalls != null && vizBalls.length > 0 && vizBalls[0].getParent() != null) {
+            ((View) vizBalls[0].getParent()).setVisibility(View.GONE);
         }
     }
 
-    // ---------- 点击交互 ----------
-    private void onOverlayClick() {
-        if (bubbleVisible) { hideBubble(); return; }
-        startVoiceConversation();
+    private void animateVisualizer() {
+        if (!vizActive || vizBalls == null) return;
+        long t = System.currentTimeMillis();
+        for (int i = 0; i < 7; i++) {
+            // 每个球不同的频率和相位，模拟音谱跳动
+            float phase = vizPhases[i];
+            float freq = 8f + i * 1.5f;  // 不同频率
+            float baseAmp = 0.3f + i * 0.08f;
+            // 混合两个正弦波产生不规则跳动感
+            float raw = (float) (Math.sin(t * 0.001 * freq + phase) * 0.6
+                               + Math.sin(t * 0.0013 * freq * 1.7 + phase * 2) * 0.4);
+            float scale = baseAmp + Math.abs(raw) * 1.8f;
+            scale = Math.max(0.25f, Math.min(scale, 3.0f));
+
+            View ball = vizBalls[i];
+            int baseSize = dpToPx(12);
+            int newSize = (int) (baseSize * scale);
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) ball.getLayoutParams();
+            lp.width = newSize;
+            lp.height = newSize;
+            // 微调透明度
+            ball.setAlpha(0.5f + Math.abs(raw) * 0.5f);
+            ball.setLayoutParams(lp);
+        }
+        vizBalls[0].getParent().requestLayout();
+        vizHandler.postDelayed(this::animateVisualizer, 60); // ~16fps
     }
 
-    /**
-     * 启动语音对话：ASR 监听 → LLM 思考 → TTS 播报
-     */
-    private void startVoiceConversation() {
-        showBubble("正在听… 🎤");
-        charView.onInteract();
+    private void createMenuBubble() {
+        menuBubble = new LinearLayout(this);
+        menuBubble.setOrientation(LinearLayout.VERTICAL);
+        menuBubble.setGravity(Gravity.CENTER);
 
-        aiEngine.startListening(new AiEngine.ListenCallback() {
-            @Override public void onReady() {
-                showBubble("我在听呢~ 👂");
-            }
-            @Override public void onResult(String transcript) {
-                showBubble("你说: " + transcript);
-                charView.onReplyReceived();
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xEE1a1a2e);
+        bg.setCornerRadius(dpToPx(16));
+        bg.setStroke(dpToPx(1), 0x55ff4400);
+        menuBubble.setBackground(bg);
+        menuBubble.setPadding(dpToPx(16), dpToPx(12), dpToPx(16), dpToPx(12));
+        menuBubble.setElevation(dpToPx(8));
 
-                aiEngine.chat(transcript, new AiEngine.ChatCallback() {
-                    @Override public void onReply(String reply) {
-                        showBubble(reply);
-                        aiEngine.speak(reply);
-                        charView.onReplyReceived();
-                    }
-                    @Override public void onError(String error) {
-                        showBubble(getString(R.string.chat_network_error));
-                        Log.w(TAG, error);
-                    }
-                });
-            }
-            @Override public void onError(String error) {
-                showBubble(error);
-                charView.onIdle();
-            }
-        });
+        menuTitle = new TextView(this);
+        menuTitle.setText(getString(R.string.app_name));
+        menuTitle.setTextColor(0xFFff6600);
+        menuTitle.setTextSize(14);
+        menuTitle.setGravity(Gravity.CENTER);
+        menuTitle.setPadding(0, 0, 0, dpToPx(4));
+        menuBubble.addView(menuTitle);
+
+        // 关闭按钮
+        Button btnClose = new Button(this);
+        btnClose.setText("✕");
+        btnClose.setTextSize(16);
+        btnClose.setTextColor(0xFFff4444);
+        btnClose.setAllCaps(false);
+        btnClose.setBackgroundColor(0x00000000);
+        btnClose.setPadding(dpToPx(8), dpToPx(2), dpToPx(8), dpToPx(2));
+        btnClose.setOnClickListener(v -> hideBubble());
+        LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        closeLp.gravity = Gravity.END;
+        btnClose.setLayoutParams(closeLp);
+        menuBubble.addView(btnClose);
+
+        LinearLayout btnRow = new LinearLayout(this);
+        btnRow.setOrientation(LinearLayout.VERTICAL);
+        btnRow.setGravity(Gravity.CENTER);
+
+        btnMusic = createMenuBtn(getString(R.string.btn_music));
+        btnVoice = createMenuBtn(getString(R.string.btn_voice));
+        btnChat = createMenuBtn(getString(R.string.btn_chat));
+
+        btnRow.addView(btnMusic);
+        btnRow.addView(btnVoice);
+        btnRow.addView(btnChat);
+        menuBubble.addView(btnRow);
+
+        btnMusic.setOnClickListener(v -> toggleMusic());
+        btnVoice.setOnClickListener(v -> startVoiceConversation());
+        btnChat.setOnClickListener(v -> openWebView());
+
+        menuBubble.setVisibility(View.GONE);
+
+        // 嵌入 overlayRoot，小球下方
+        LinearLayout.LayoutParams menuLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        menuLp.gravity = Gravity.CENTER;
+        menuLp.topMargin = dpToPx(8);
+        overlayRoot.addView(menuBubble, menuLp);
+    }
+
+    private Button createMenuBtn(String text) {
+        Button btn = new Button(this);
+        btn.setText(text);
+        btn.setTextSize(12);
+        btn.setTextColor(0xFFFFFFFF);
+        btn.setAllCaps(false);
+
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0x44ff4400);
+        bg.setCornerRadius(dpToPx(10));
+        btn.setBackground(bg);
+        btn.setPadding(dpToPx(10), dpToPx(6), dpToPx(10), dpToPx(6));
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+            dpToPx(120), LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, dpToPx(6), 0, dpToPx(6));
+        btn.setLayoutParams(lp);
+        return btn;
+    }
+
+    // ═══ 交互 ═══
+    private void onOverlayClick() {
+        if (bubbleVisible) {
+            hideBubble();
+        } else {
+            showMenu();
+        }
+    }
+
+    private void showMenu() {
+        isRoaming = false; // 点击停飘
+        // 立即取消所有漫游回调，避免最后一帧位移造成抖动
+        if (roamHandler != null) roamHandler.removeCallbacksAndMessages(null);
+        menuBubble.setVisibility(View.VISIBLE);
+        AlphaAnimation fadeIn = new AlphaAnimation(0f, 1f);
+        fadeIn.setDuration(250);
+        menuBubble.startAnimation(fadeIn);
+        bubbleVisible = true;
+        overlayRoot.postDelayed(this::hideBubble, 20000);
     }
 
     private void showBubble(String text) {
-        chatText.setText("✨ " + text);
-        chatBubble.setVisibility(View.VISIBLE);
-        // 淡入动画
+        // 复用菜单标题显示消息
+        menuTitle.setText(text);
+        menuBubble.setVisibility(View.VISIBLE);
         AlphaAnimation fadeIn = new AlphaAnimation(0f, 1f);
         fadeIn.setDuration(250);
-        chatBubble.startAnimation(fadeIn);
+        menuBubble.startAnimation(fadeIn);
         bubbleVisible = true;
-        overlayRoot.postDelayed(this::hideBubble, 6000);
+        overlayRoot.postDelayed(this::hideBubble, 4000);
     }
 
     private void hideBubble() {
+        // 取消 showMenu 的 20s 自动关闭定时器
+        overlayRoot.removeCallbacks(null);
         AlphaAnimation fadeOut = new AlphaAnimation(1f, 0f);
         fadeOut.setDuration(200);
         fadeOut.setAnimationListener(new Animation.AnimationListener() {
             @Override public void onAnimationStart(Animation a) {}
             @Override public void onAnimationEnd(Animation a) {
-                chatBubble.setVisibility(View.GONE);
+                menuBubble.setVisibility(View.GONE);
+                menuTitle.setText(getString(R.string.app_name));
             }
             @Override public void onAnimationRepeat(Animation a) {}
         });
-        chatBubble.startAnimation(fadeOut);
+        menuBubble.startAnimation(fadeOut);
         bubbleVisible = false;
         charView.onIdle();
+        isRoaming = true;
+        roamTime = 0;
+        startRoaming();
     }
 
-    // ---------- 工具 ----------
-    private int dpToPx(int dp) {
-        return (int) (dp * getResources().getDisplayMetrics().density + 0.5f);
-    }
-
-    // ---------- 不规则漫游 ----------
-    private void startRoaming() {
-        roamHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-        roamTime = 0f;
-        roamHandler.post(roamRunnable);
-    }
-
-    private Runnable roamRunnable = new Runnable() {
-        @Override public void run() {
-            if (!isRoaming || wmParams == null || overlayRoot == null) {
-                if (roamHandler != null) roamHandler.postDelayed(this, 1000);
-                return;
-            }
-            roamTime += 0.05f;
-            // 叠加两个正弦波产生不规则运动
-            float dx = (float)(Math.sin(roamTime * roamSpeedX) * roamAmpX
-                             + Math.cos(roamTime * 0.37f) * roamAmpX * 0.5f);
-            float dy = (float)(Math.cos(roamTime * roamSpeedY) * roamAmpY
-                             + Math.sin(roamTime * 0.53f) * roamAmpY * 0.5f);
-
-            int newX = Math.max(0, Math.min(screenW - charSize, wmParams.x + (int)dx));
-            int newY = Math.max(0, Math.min(screenH - charSize, wmParams.y + (int)dy));
-            wmParams.x = newX;
-            wmParams.y = newY;
-
-            try {
-                windowManager.updateViewLayout(overlayRoot, wmParams);
-            } catch (Exception ignored) {}
-
-            if (roamHandler != null) roamHandler.postDelayed(this, 50); // 20fps
+    // ═══ 语音对话 ═══
+    private void startVoiceConversation() {
+        // 请求录音权限
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            showBubble(getString(R.string.perm_mic_needed));
+            return;
         }
-    };
 
-    @Override public IBinder onBind(Intent intent) { return null; }
+        showBubble(getString(R.string.listening));
+        charView.onInteract();
 
-    /**
-     * 启动唤醒词检测 — 后台持续监听"灵绘"，命中后激活对话
-     */
-    private void startWakeWordDetection() {
-        aiEngine.startWakeWordDetection(transcript -> {
-            Log.i(TAG, "🎯 唤醒词命中: " + transcript);
-            startVoiceConversation();
+        aiEngine.startListening(new AiEngine.ListenCallback() {
+            @Override public void onReady() {
+                showBubble(getString(R.string.im_listening));
+            }
+            @Override public void onResult(String transcript) {
+                showBubble(getString(R.string.you_said) + transcript);
+                aiEngine.chat(transcript, new AiEngine.ChatCallback() {
+                    @Override public void onReply(String reply) {
+                        showBubble(reply);
+                        aiEngine.speak(reply);
+                        if (charView != null) charView.onReplyReceived();
+                        resumeWakeWord();
+                    }
+                    @Override public void onError(String error) {
+                        showBubble(getString(R.string.network_issue));
+                    }
+                });
+            }
+            @Override public void onError(String error) {
+                showBubble(getString(R.string.didnt_catch));
+                charView.onIdle();
+                resumeWakeWord();
+            }
         });
     }
 
-    /**
-     * 执行自动化操作 — 调用 Android 系统 API
-     */
-    private String executeAction(String action, org.json.JSONObject params) {
-        try {
-            switch (action) {
-                case "open_app": {
-                    String appName = params != null ? params.optString("app_name", "") : "";
-                    Intent launchIntent = getPackageManager()
-                        .getLaunchIntentForPackage(resolvePackageName(appName));
-                    if (launchIntent != null) {
-                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(launchIntent);
-                        return getString(R.string.action_app_opened) + appName;
-                    }
-                    // 回退：尝试用市场搜索
-                    if (!appName.isEmpty()) {
-                        Intent searchIntent = new Intent(Intent.ACTION_VIEW,
-                            Uri.parse("market://search?q=" + appName));
-                        searchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        try {
-                            startActivity(searchIntent);
-                            return getString(R.string.action_market_search) + appName;
-                        } catch (Exception ignored) {}
-                    }
-                    return getString(R.string.action_app_not_found) + appName;
+    // ═══ 唤醒词检测 ═══
+
+    /** 如果有录音权限，启动后台唤醒词检测 */
+    private void startWakeWordIfPermitted() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            Log.i(TAG, "无录音权限，跳过唤醒词检测");
+            return;
+        }
+        if (wakeWordActive) return;
+        wakeWordActive = true;
+        Log.i(TAG, "唤醒词检测启动: 「灵绘」");
+
+        aiEngine.startWakeWordDetection(new AiEngine.WakeWordCallback() {
+            @Override
+            public void onWakeWordDetected(String transcript) {
+                Log.i(TAG, "🎯 唤醒词命中: " + transcript);
+                // 暂停唤醒词检测，进入对话模式
+                wakeWordActive = false;
+                showBubble(getString(R.string.wake_greeting));
+                charView.onInteract();
+                // 延迟一秒后开始听指令，避免把唤醒词当指令
+                new Handler().postDelayed(() -> startVoiceConversation(), 1000);
+            }
+        });
+    }
+
+    /** 对话结束后恢复唤醒词检测 */
+    private void resumeWakeWord() {
+        if (!wakeWordActive) {
+            new Handler().postDelayed(() -> {
+                startWakeWordIfPermitted();
+                if (wakeWordActive) {
+                    Log.i(TAG, "唤醒词检测已恢复");
                 }
-                case "search": {
-                    String query = params != null ? params.optString("query", "") : "";
-                    Intent searchIntent = new Intent(Intent.ACTION_WEB_SEARCH);
-                    searchIntent.putExtra("query", query);
-                    searchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    startActivity(searchIntent);
-                    return getString(R.string.action_searching) + query;
-                }
-                case "notify": {
-                    String title = params != null ? params.optString("title", getString(R.string.remind_default_title)) : getString(R.string.remind_default_title);
-                    String content = params != null ? params.optString("content", "") : "";
-                    sendLocalNotification(title, content);
-                    return getString(R.string.action_remind_set) + content;
-                }
-                case "clipboard": {
-                    String text = params != null ? params.optString("text", "") : "";
-                    ClipboardManager clipboard = (ClipboardManager)
-                        getSystemService(Context.CLIPBOARD_SERVICE);
-                    ClipData clip = ClipData.newPlainText("linghui", text);
-                    clipboard.setPrimaryClip(clip);
-                    return getString(R.string.action_clipboard_copied);
-                }
-                case "screenshot": {
-                    // Android 14+ 截图需要 MediaProjection API
-                    // 此处发出提示，完整实现需配合前台服务权限
-                    showToast(getString(R.string.action_screenshot_permission));
-                    return getString(R.string.action_screenshot_manual);
-                }
-                case "vibrate": {
-                    int durationMs = params != null ? params.optInt("duration_ms", 200) : 200;
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        VibratorManager vm = (VibratorManager)
-                            getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
-                        vm.getDefaultVibrator().vibrate(
-                            VibrationEffect.createOneShot(durationMs,
-                                VibrationEffect.DEFAULT_AMPLITUDE));
+            }, 2000);
+        }
+    }
+
+    // ═══ 打开全功能页 ═══
+    private void openWebView() {
+        hideBubble();
+        Intent intent = new Intent(this, WebViewActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(intent);
+    }
+
+    // ═══ 通知 ═══
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                CHANNEL_ID, getString(R.string.channel_name), NotificationManager.IMPORTANCE_HIGH);
+            channel.setDescription(getString(R.string.channel_description));
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            nm.createNotificationChannel(channel);
+        }
+    }
+
+    // ── 通知栏控制面板（含 3 个操作按钮）──
+    private static final String ACTION_PAUSE_ROAM = "com.linghui.PAUSE_ROAM";
+    private static final String ACTION_TOGGLE_VISIBLE = "com.linghui.TOGGLE_VISIBLE";
+    private static final String ACTION_OPEN_WEBVIEW = "com.linghui.OPEN_WEBVIEW";
+
+    private Notification buildNotification() {
+        Intent intent = new Intent(this, MainActivity.class);
+        PendingIntent pi = PendingIntent.getActivity(this, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        PendingIntent pausePi = PendingIntent.getBroadcast(this, 1,
+            new Intent(ACTION_PAUSE_ROAM), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent togglePi = PendingIntent.getBroadcast(this, 2,
+            new Intent(ACTION_TOGGLE_VISIBLE), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent webPi = PendingIntent.getBroadcast(this, 3,
+            new Intent(ACTION_OPEN_WEBVIEW), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        String roamLabel = isRoaming ? getString(R.string.btn_pause) : getString(R.string.btn_roam);
+        String visibleLabel = overlayVisible ? getString(R.string.btn_hide) : getString(R.string.btn_show);
+
+        return new NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(getString(R.string.notification_title))
+            .setContentText(isRoaming ? getString(R.string.roaming_status) : getString(R.string.paused_status))
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentIntent(pi)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setOngoing(true)
+            .addAction(android.R.drawable.ic_media_pause, roamLabel, pausePi)
+            .addAction(android.R.drawable.ic_menu_view, visibleLabel, togglePi)
+            .addAction(android.R.drawable.ic_menu_gallery, getString(R.string.btn_open_linghui), webPi)
+
+            .build();
+    }
+
+    /** 注册通知栏按钮的广播接收器 */
+    private void registerNotifReceiver() {
+        notifReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                String action = intent.getAction();
+                if (ACTION_PAUSE_ROAM.equals(action)) {
+                    if (isRoaming) {
+                        isRoaming = false;
+                        showBubble(getString(R.string.roam_paused));
                     } else {
-                        Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
-                        v.vibrate(VibrationEffect.createOneShot(durationMs,
-                            VibrationEffect.DEFAULT_AMPLITUDE));
+                        isRoaming = true;
+                        roamTime = 0;
+                        startRoaming();
+                        showBubble(getString(R.string.roam_resumed));
                     }
-                    return getString(R.string.action_vibrated) + durationMs + "ms";
-                }
-                case "brightness": {
-                    int level = params != null ? params.optInt("level", 128) : 128;
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        if (Settings.System.canWrite(this)) {
-                            Settings.System.putInt(getContentResolver(),
-                                Settings.System.SCREEN_BRIGHTNESS,
-                                Math.max(0, Math.min(255, level)));
-                            return getString(R.string.action_brightness_set) + level;
-                        }
-                    }
-                    showToast(getString(R.string.action_brightness_permission));
-                    return "亮度调整需授权";
-                }
-                case "volume": {
-                    int vol = params != null ? params.optInt("level", 10) : 10;
-                    AudioManager audio = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-                    int maxVol = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
-                    int targetVol = Math.max(0, Math.min(maxVol, vol));
-                    audio.setStreamVolume(AudioManager.STREAM_MUSIC, targetVol, 0);
-                    return getString(R.string.action_volume_set) + targetVol;
+                    updateNotification();
+                } else if (ACTION_TOGGLE_VISIBLE.equals(action)) {
+                    overlayVisible = !overlayVisible;
+                    overlayRoot.setVisibility(overlayVisible ? View.VISIBLE : View.INVISIBLE);
+                    showBubble(overlayVisible ? getString(R.string.im_back) : getString(R.string.see_you));
+                    updateNotification();
+                } else if (ACTION_OPEN_WEBVIEW.equals(action)) {
+                    openWebView();
                 }
             }
-        } catch (Exception e) {
-            Log.w(TAG, "操作执行失败: " + action + " - " + e.getMessage());
-            return "执行失败: " + e.getMessage();
-        }
-        return null;
+        };
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(ACTION_PAUSE_ROAM);
+        filter.addAction(ACTION_TOGGLE_VISIBLE);
+        filter.addAction(ACTION_OPEN_WEBVIEW);
+        registerReceiver(notifReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
     }
 
-    /**
-     * 发送本地通知
-     */
-    private void sendLocalNotification(String title, String content) {
-        NotificationManager nm = (NotificationManager)
-            getSystemService(Context.NOTIFICATION_SERVICE);
-        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(title)
-            .setContentText(content)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setAutoCancel(true)
-            .build();
-        nm.notify((int) System.currentTimeMillis(), notification);
+    /** 刷新通知栏按钮文字 */
+    private void updateNotification() {
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        nm.notify(NOTIFY_ID, buildNotification());
     }
 
-    /**
-     * 常用应用名 → 包名映射
-     */
-    private String resolvePackageName(String appName) {
-        if (appName == null || appName.isEmpty()) return "";
-        switch (appName.toLowerCase()) {
-            case "微信": case "wechat": return "com.tencent.mm";
-            case "qq": return "com.tencent.mobileqq";
-            case "支付宝": case "alipay": return "com.eg.android.AlipayGphone";
-            case "抖音": case "tiktok": return "com.ss.android.ugc.aweme";
-            case "淘宝": case "taobao": return "com.taobao.taobao";
-            case "微博": case "weibo": return "com.sina.weibo";
-            case "网易云音乐": case "music": return "com.netease.cloudmusic";
-            case "哔哩哔哩": case "bilibili": return "tv.danmaku.bili";
-            case "浏览器": case "browser": return "com.android.chrome";
-            case "设置": case "settings": return "com.android.settings";
-            case "相机": case "camera": return "com.android.camera";
-            case "相册": case "gallery": return "com.android.gallery3d";
-            case "计算器": case "calculator": return "com.android.calculator2";
-            default: return appName;
-        }
-    }
+    // ═══ 漫游 ═══
+    private void startRoaming() {
+        if (roamHandler == null) roamHandler = new Handler();
+        roamHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!isRoaming) return;
+                roamTime += 0.1f;
+                int cx = screenW / 2;
+                int cy = screenH / 2;
+                int nx = (int) (cx + Math.sin(roamTime * roamSpeedX) * roamAmpX - charSize / 2);
+                int ny = (int) (cy + Math.cos(roamTime * roamSpeedY) * roamAmpY - charSize / 2);
 
-    /**
-     * 显示 Toast（非主线程安全）
-     */
-    private void showToast(String text) {
-        new Handler(android.os.Looper.getMainLooper()).post(() ->
-            Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
-        );
+                // 边缘碰撞反弹：碰到屏幕边缘时反转方向 + 缩小振幅模拟弹跳
+                boolean hitEdge = false;
+                if (nx <= 0) { nx = 0; roamSpeedX = -roamSpeedX; roamAmpX *= 0.9f; hitEdge = true; }
+                if (nx >= screenW - charSize) { nx = screenW - charSize; roamSpeedX = -roamSpeedX; roamAmpX *= 0.9f; hitEdge = true; }
+                if (ny <= 0) { ny = 0; roamSpeedY = -roamSpeedY; roamAmpY *= 0.9f; hitEdge = true; }
+                if (ny >= screenH - charSize) { ny = screenH - charSize; roamSpeedY = -roamSpeedY; roamAmpY *= 0.9f; hitEdge = true; }
+
+                // 弹跳后逐渐恢复振幅
+                if (hitEdge) {
+                    roamAmpX = Math.min(roamAmpX + 10f, 60f);
+                    roamAmpY = Math.min(roamAmpY + 10f, 50f);
+                }
+
+                wmParams.x = nx;
+                wmParams.y = ny;
+                try { windowManager.updateViewLayout(overlayRoot, wmParams); } catch (Exception e) { isRoaming = false; Log.w(TAG, "漫游更新失败，停止漫游: " + e.getMessage()); }
+                roamHandler.postDelayed(this, 100);
+            }
+        }, 50);
     }
 
     @Override
     public void onDestroy() {
-        super.onDestroy();
-        if (useUnity && charView instanceof UnityPlayerView) {
-            ((UnityPlayerView) charView).pause();
-            ((UnityPlayerView) charView).destroy();
-        }
-        if (roamHandler != null) { roamHandler.removeCallbacksAndMessages(null); roamHandler = null; }
-        if (overlayRoot != null) windowManager.removeView(overlayRoot);
+        isRoaming = false;
+        wakeWordActive = false;
         if (aiEngine != null) aiEngine.stopWakeWordDetection();
+        if (roamHandler != null) roamHandler.removeCallbacksAndMessages(null);
+        vizActive = false;
+        if (vizHandler != null) vizHandler.removeCallbacksAndMessages(null);
+        if (equalizer != null) { equalizer.release(); equalizer = null; }
+        if (mediaPlayer != null) { mediaPlayer.release(); mediaPlayer = null; }
+        if (charView != null) charView.onIdle();
+        if (overlayRoot != null) try { windowManager.removeView(overlayRoot); } catch (Exception e) {}
+        if (notifReceiver != null) try { unregisterReceiver(notifReceiver); } catch (Exception e) {}
         if (commHandler != null) commHandler.stopPolling();
         if (aiEngine != null) aiEngine.shutdown();
-        Log.i(TAG, "灵绘悬浮窗服务已停止");
+        instance = null;
+        super.onDestroy();
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) { return null; }
+
+    // ═══ 均衡器 ═══
+
+    // 预设值：0=关闭, 1=重低音, 2=流行, 3=古典, 4=摇滚, 5=爵士, 6=人声
+    private static final short[][] EQ_PRESETS = {
+        null,  // 0=关闭
+        {900,900,500,300,200,0,0,0,0,300,500,700,800,800,800},  // 重低音
+        {0,300,600,900,600,300,0,-100,-100,0,0,0,0,0,0},         // 流行
+        {0,0,0,0,0,0,-200,-200,-200,-300,-300,-400,-400,-400,-500},  // 古典
+        {500,400,300,100,0,-100,-100,0,200,400,500,500,500,400,300},  // 摇滚
+        {0,200,300,100,0,0,-100,-100,0,0,0,0,0,0,0},              // 爵士
+        {-200,-100,-100,0,200,400,500,500,500,400,200,0,-100,-100,-100},  // 人声
+    };
+
+    public void setEqualizer(int preset) {
+        if (equalizer == null) return;
+        try {
+            if (preset == 0) {
+                equalizer.setEnabled(false);
+            } else if (preset > 0 && preset < EQ_PRESETS.length) {
+                equalizer.setEnabled(true);
+                short[] bands = EQ_PRESETS[preset];
+                short numBands = equalizer.getNumberOfBands();
+                for (short i = 0; i < numBands && i < bands.length; i++) {
+                    equalizer.setBandLevel(i, bands[i]);
+                }
+            }
+            Log.i(TAG, "均衡器预设: " + preset);
+        } catch (Exception e) {
+            Log.w(TAG, "均衡器设置失败: " + e.getMessage());
+        }
+    }
+
+    // ═══ 工具 ═══
+    private int dpToPx(int dp) {
+        return (int) (dp * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    // ═══ 自动化操作 — 完整实现 ═══
+    private String executeAction(String action, java.util.Map<String, String> params) {
+        if (action == null) return null;
+        try {
+            switch (action) {
+                case "open_app": {
+                    String pkg = params != null ? params.get("package") : null;
+                    if (pkg == null) return getString(R.string.no_package);
+                    Intent launch = getPackageManager().getLaunchIntentForPackage(pkg);
+                    if (launch != null) {
+                        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(launch);
+                        return getString(R.string.app_opened);
+                    }
+                    return getString(R.string.action_app_not_found) + pkg;
+                }
+                case "open_url": {
+                    String url = params != null ? params.get("url") : null;
+                    if (url == null) return getString(R.string.no_url);
+                    if (!url.startsWith("http")) url = "https://" + url;
+                    Intent browser = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    browser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(browser);
+                    return getString(R.string.link_opened);
+                }
+                case "search": {
+                    String query = params != null ? params.get("query") : null;
+                    if (query == null) return getString(R.string.no_query);
+                    String searchUrl = "https://www.google.com/search?q=" + Uri.encode(query);
+                    Intent search = new Intent(Intent.ACTION_VIEW, Uri.parse(searchUrl));
+                    search.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(search);
+                    return getString(R.string.searched) + query;
+                }
+                case "notify": {
+                    String title = params != null ? params.get("title") : "灵绘";
+                    String content = params != null ? params.get("content") : "";
+                    NotificationManager nm = getSystemService(NotificationManager.class);
+                    Notification notif = new NotificationCompat.Builder(this, CHANNEL_ID)
+                        .setContentTitle(title != null ? title : "灵绘")
+                        .setContentText(content)
+                        .setSmallIcon(R.mipmap.ic_launcher)
+                        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                        .setAutoCancel(true)
+                        .build();
+                    nm.notify((int) System.currentTimeMillis(), notif);
+                    return getString(R.string.notif_sent);
+                }
+                case "clipboard": {
+                    String text = params != null ? params.get("text") : null;
+                    if (text == null) return getString(R.string.no_clipboard_text);
+                    ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    cm.setPrimaryClip(ClipData.newPlainText("linghui", text));
+                    return getString(R.string.clipboard_copied);
+                }
+                case "volume_up": {
+                    AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+                    am.adjustVolume(AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI);
+                    return getString(R.string.vol_up);
+                }
+                case "volume_down": {
+                    AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+                    am.adjustVolume(AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI);
+                    return getString(R.string.vol_down);
+                }
+                case "vibrate": {
+                    int dur = 200;
+                    if (params != null && params.containsKey("duration_ms")) {
+                        try { dur = Integer.parseInt(params.get("duration_ms")); } catch (NumberFormatException e) {}
+                    }
+                    Vibrator vib = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+                    if (vib != null && vib.hasVibrator()) {
+                        vib.vibrate(dur);
+                        return getString(R.string.action_vibrated);
+                    }
+                    return getString(R.string.vibrate_unsupported);
+                }
+                default: return null;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "executeAction 异常: " + action + ", " + e.getMessage());
+            return getString(R.string.action_failed) + e.getMessage();
+        }
     }
 }

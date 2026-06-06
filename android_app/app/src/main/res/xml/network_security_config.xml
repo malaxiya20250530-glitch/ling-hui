@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- 允许 WebView 连接本地 WebSocket -->
+    <!-- 允许 WebView 连接本地 WebSocket 和局域网服务器 -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">127.0.0.1</domain>
         <domain includeSubdomains="true">0.0.0.0</domain>
     </domain-config>
+    <!-- 允许局域网 IP 段 -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
 </network-security-config>
