@@ -20,6 +20,25 @@ android {
         buildConfigField "boolean", "UNITY_ENABLED", "${unityEnabled}"
     }
 
+    flavorDimensions "language"
+    productFlavors {
+        zh {
+            dimension "language"
+            resConfigs "zh", "zh-rCN"
+            versionNameSuffix "-zh"
+        }
+        en {
+            dimension "language"
+            resConfigs "en"
+            versionNameSuffix "-en"
+        }
+        bn {
+            dimension "language"
+            resConfigs "bn"
+            versionNameSuffix "-bn"
+        }
+    }
+
     buildTypes {
         debug {
             minifyEnabled false

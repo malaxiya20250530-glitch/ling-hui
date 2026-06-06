@@ -89,7 +89,7 @@ jobs:
           path: android_app/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
-  # ═══ 编译 Release ═══
+  # ═══ 编译 Release（三语版本）═══
   build-release:
     needs: [detect-mode, build-debug]
     if: github.event_name != 'pull_request'
@@ -110,54 +110,65 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           MODE="${{ needs.detect-mode.outputs.mode_suffix }}"
           echo "apk_name=LingHui-v${{ github.run_number }}-${SHORT_SHA}${MODE}" >> $GITHUB_OUTPUT
-          echo "mode_label=${{ needs.detect-mode.outputs.mode_label }}" >> $GITHUB_OUTPUT
 
-      - name: 编译 Release APK
+      - name: 编译三语 Release APK
         working-directory: android_app
         run: |
           sed -i '/aapt2FromMavenOverride/d' gradle.properties
-          ANDROID_HOME=$ANDROID_SDK_ROOT ./gradlew assembleRelease --no-daemon
+          ANDROID_HOME=$ANDROID_SDK_ROOT ./gradlew assembleZhRelease assembleEnRelease assembleBnRelease --no-daemon
 
-      - name: 签名 Release APK
+      - name: 签名三语 APK
         run: |
-          UNSIGNED=android_app/app/build/outputs/apk/release/app-release-unsigned.apk
-          SIGNED=${{ steps.version.outputs.apk_name }}-release.apk
-          # 自动检测最新 build-tools 版本
           BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1 | sed 's|/$||')
+          BASE="${{ steps.version.outputs.apk_name }}"
 
-          if [ ! -f "$UNSIGNED" ]; then
-            echo "❌ 未找到未签名 APK: $UNSIGNED"
-            ls -R android_app/app/build/outputs/apk/release/
-            exit 1
-          fi
+          for LANG in zh en bn; do
+            UNSIGNED="android_app/app/build/outputs/apk/${LANG}/release/app-${LANG}-release-unsigned.apk"
+            SIGNED="${BASE}-${LANG}-release.apk"
 
-          if [ ! -f "$BUILD_TOOLS/apksigner" ]; then
-            echo "❌ 未找到 apksigner: $BUILD_TOOLS/apksigner"
-            ls -d $ANDROID_HOME/build-tools/*/
-            exit 1
-          fi
+            if [ ! -f "$UNSIGNED" ]; then
+              echo "❌ 未找到: $UNSIGNED"
+              ls android_app/app/build/outputs/apk/${LANG}/release/ 2>/dev/null || echo "(目录不存在)"
+              continue
+            fi
 
-          $BUILD_TOOLS/apksigner sign \
-            --ks linghui.jks \
-            --ks-key-alias linghui \
-            --ks-pass pass:linghui2025 \
-            --key-pass pass:linghui2025 \
-            --out "$SIGNED" \
-            "$UNSIGNED"
+            $BUILD_TOOLS/apksigner sign \
+              --ks linghui.jks \
+              --ks-key-alias linghui \
+              --ks-pass pass:linghui2025 \
+              --key-pass pass:linghui2025 \
+              --out "$SIGNED" \
+              "$UNSIGNED"
 
-          echo "✅ 已签名: $SIGNED ($(du -h $SIGNED | cut -f1))"
+            echo "✅ ${LANG} 已签名: $SIGNED ($(du -h $SIGNED | cut -f1))"
+          done
 
-      - name: 上传 Release APK
+      - name: 上传中文版
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.version.outputs.apk_name }}-release
-          path: ${{ steps.version.outputs.apk_name }}-release.apk
+          name: ${{ steps.version.outputs.apk_name }}-zh-release
+          path: ${{ steps.version.outputs.apk_name }}-zh-release.apk
+          retention-days: 90
+
+      - name: 上传英文版
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.apk_name }}-en-release
+          path: ${{ steps.version.outputs.apk_name }}-en-release.apk
+          retention-days: 90
+
+      - name: 上传孟加拉语版
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.apk_name }}-bn-release
+          path: ${{ steps.version.outputs.apk_name }}-bn-release.apk
           retention-days: 90
 
       - name: 构建摘要
         run: |
           echo "╔═══════════════════════════════════╗"
-          echo "║  灵绘 APK 构建完成               ║"
-          echo "║  版本: ${{ steps.version.outputs.apk_name }}"
-          echo "║  模式: ${{ needs.detect-mode.outputs.mode_label }}"
+          echo "║  灵绘 APK 三语构建完成           ║"
+          echo "║  中文版: ${{ steps.version.outputs.apk_name }}-zh-release.apk"
+          echo "║  英文版: ${{ steps.version.outputs.apk_name }}-en-release.apk"
+          echo "║  孟语版: ${{ steps.version.outputs.apk_name }}-bn-release.apk"
           echo "╚═══════════════════════════════════╝"
