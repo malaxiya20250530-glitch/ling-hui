@@ -217,7 +217,9 @@ public class OverlayService extends Service {
                                 }
                             }
                         },
-                        60 * 1024  // 每 60ms 回调一次 ≈ 16fps
+                        (int)(60 * 1024),  // rate in milliHz, ~60ms ≈ 16fps
+                        false,   // 不捕获波形
+                        true     // 捕获 FFT
                     );
                     audioVisualizer.setEnabled(true);
                     Log.i(TAG, "音频可视化初始化成功");
