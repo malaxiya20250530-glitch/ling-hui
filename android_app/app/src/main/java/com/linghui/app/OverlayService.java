@@ -17,6 +17,7 @@ import android.graphics.PixelFormat;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.audiofx.Equalizer;
+import android.media.audiofx.Visualizer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -87,12 +88,13 @@ public class OverlayService extends Service {
     private View[] vizBalls;
     private Handler vizHandler;
     private boolean vizActive;
+    private Visualizer audioVisualizer;     // Android 音频可视化 API
+    private float[] vizFftData = new float[7];  // 7 频段 FFT 幅度
     private static final int[] VIZ_COLORS = {
         0xFFE53935, 0xFFFB8C00, 0xFFFFEB3B,  // 红橙黄
         0xFF43A047, 0xFF00ACC1, 0xFF1E88E5,  // 绿青蓝
         0xFF8E24AA                               // 紫
     };
-    private float[] vizPhases = {0f, 0.6f, 1.2f, 1.8f, 2.4f, 3.0f, 3.6f};
     private int screenW, screenH, charSize;
 
 
@@ -179,12 +181,48 @@ public class OverlayService extends Service {
             mediaPlayer.setLooping(true);
             mediaPlayer.setOnPreparedListener(mp -> {
                 mediaPlayerPrepared = true;
+                int sessionId = mp.getAudioSessionId();
                 try {
-                    equalizer = new Equalizer(0, mp.getAudioSessionId());
+                    equalizer = new Equalizer(0, sessionId);
                     equalizer.setEnabled(true);
                     Log.i(TAG, "均衡器初始化成功, bands=" + equalizer.getNumberOfBands());
                 } catch (Exception e) {
                     Log.w(TAG, "均衡器不可用: " + e.getMessage());
+                }
+                // 初始化音频可视化 — 捕获真实波形/FFT
+                try {
+                    audioVisualizer = new Visualizer(sessionId);
+                    audioVisualizer.setCaptureSize(256);
+                    audioVisualizer.setDataCaptureListener(
+                        new Visualizer.OnDataCaptureListener() {
+                            @Override
+                            public void onWaveFormDataCapture(Visualizer visualizer, byte[] waveform, int samplingRate) {
+                                // 不使用波形，用 FFT
+                            }
+                            @Override
+                            public void onFftDataCapture(Visualizer visualizer, byte[] fft, int samplingRate) {
+                                if (fft == null || fft.length < 14) return;
+                                // 将 128 个 FFT bin 聚合为 7 个频段
+                                // 低频段 bin 多、高频段 bin 多，匹配人耳对数感知
+                                int[] bandLimits = {2, 4, 8, 16, 32, 64, fft.length / 2};
+                                int start = 0;
+                                for (int b = 0; b < 7; b++) {
+                                    int end = Math.min(bandLimits[b], fft.length / 2);
+                                    float sum = 0;
+                                    for (int i = start; i < end; i++) {
+                                        sum += (fft[i] & 0xFF);
+                                    }
+                                    vizFftData[b] = sum / Math.max(1, end - start) / 255f;
+                                    start = end;
+                                }
+                            }
+                        },
+                        60 * 1024  // 每 60ms 回调一次 ≈ 16fps
+                    );
+                    audioVisualizer.setEnabled(true);
+                    Log.i(TAG, "音频可视化初始化成功");
+                } catch (Exception e) {
+                    Log.w(TAG, "Visualizer 不可用: " + e.getMessage());
                 }
                 Log.i(TAG, "音乐准备就绪");
             });
@@ -349,30 +387,34 @@ public class OverlayService extends Service {
         for (View b : vizBalls) b.getParent().requestLayout();
         ((View) vizBalls[0].getParent()).setVisibility(View.VISIBLE);
         vizActive = true;
+        for (int i = 0; i < 7; i++) vizFftData[i] = 0f;  // 清零
         animateVisualizer();
     }
 
     private void stopVisualizer() {
         vizActive = false;
         if (vizHandler != null) vizHandler.removeCallbacksAndMessages(null);
+        if (audioVisualizer != null) {
+            audioVisualizer.setEnabled(false);
+            audioVisualizer.release();
+            audioVisualizer = null;
+        }
         if (vizBalls != null && vizBalls.length > 0 && vizBalls[0].getParent() != null) {
             ((View) vizBalls[0].getParent()).setVisibility(View.GONE);
         }
+        // 清零 FFT 数据
+        for (int i = 0; i < 7; i++) vizFftData[i] = 0f;
     }
 
     private void animateVisualizer() {
         if (!vizActive || vizBalls == null) return;
-        long t = System.currentTimeMillis();
+        // 使用真实 FFT 数据驱动 7 个小球跳动
         for (int i = 0; i < 7; i++) {
-            // 每个球不同的频率和相位，模拟音谱跳动
-            float phase = vizPhases[i];
-            float freq = 8f + i * 1.5f;  // 不同频率
-            float baseAmp = 0.3f + i * 0.08f;
-            // 混合两个正弦波产生不规则跳动感
-            float raw = (float) (Math.sin(t * 0.001 * freq + phase) * 0.6
-                               + Math.sin(t * 0.0013 * freq * 1.7 + phase * 2) * 0.4);
-            float scale = baseAmp + Math.abs(raw) * 1.8f;
-            scale = Math.max(0.25f, Math.min(scale, 3.0f));
+            float magnitude = vizFftData[i];  // 0~1
+            // 红(低音)→紫(高音): 低频段幅度通常更大，加平滑系数
+            float baseAmp = 0.3f + i * 0.06f;
+            float scale = baseAmp + magnitude * 2.5f;
+            scale = Math.max(0.2f, Math.min(scale, 3.5f));
 
             View ball = vizBalls[i];
             int baseSize = dpToPx(12);
@@ -380,8 +422,7 @@ public class OverlayService extends Service {
             LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) ball.getLayoutParams();
             lp.width = newSize;
             lp.height = newSize;
-            // 微调透明度
-            ball.setAlpha(0.5f + Math.abs(raw) * 0.5f);
+            ball.setAlpha(0.45f + magnitude * 0.55f);
             ball.setLayoutParams(lp);
         }
         vizBalls[0].getParent().requestLayout();
