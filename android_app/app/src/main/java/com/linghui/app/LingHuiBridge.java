@@ -13,6 +13,7 @@ import android.os.Build;
 import android.os.Vibrator;
 import android.util.Log;
 import android.webkit.JavascriptInterface;
+import com.linghui.app.BuildConfig;
 import android.widget.Toast;
 
 import androidx.core.app.NotificationCompat;
@@ -35,6 +36,12 @@ public class LingHuiBridge {
 
     public LingHuiBridge(Context context) {
         this.ctx = context.getApplicationContext();
+    }
+
+    /** JS 端查询是否启用后端搜歌（中文版=true，英文/孟加拉版=false） */
+    @JavascriptInterface
+    public boolean hasBackend() {
+        return BuildConfig.ENABLE_BACKEND;
     }
 
     public void setTtsCallback(TtsCallback cb) {

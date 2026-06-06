@@ -26,16 +26,19 @@ android {
             dimension "language"
             resConfigs "zh", "zh-rCN"
             versionNameSuffix "-zh"
+            buildConfigField "boolean", "ENABLE_BACKEND", "true"
         }
         en {
             dimension "language"
             resConfigs "en"
             versionNameSuffix "-en"
+            buildConfigField "boolean", "ENABLE_BACKEND", "false"
         }
         bn {
             dimension "language"
             resConfigs "bn"
             versionNameSuffix "-bn"
+            buildConfigField "boolean", "ENABLE_BACKEND", "false"
         }
     }
 

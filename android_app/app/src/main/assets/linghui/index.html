@@ -478,26 +478,26 @@ function delSong(idx,ev){
   renderList();
 }
 
-// 全网搜歌 — 后端优先，不可用时用 iTunes 公开 API
+// 全网搜歌 — 根据 BuildConfig 分流: 中文版=后端+iTunes / 英文孟语版=iTunes
+var _hasBackend=false;
+try{_hasBackend=window.LingHuiBridge&&LingHuiBridge.hasBackend?LingHuiBridge.hasBackend():false;}catch(e){}
+
 async function searchMusic(){
   var q=document.getElementById('searchIn').value.trim();
   if(!q)return;
   var div=document.getElementById('searchResults');
   div.innerHTML='<div style="color:#888;padding:10px;text-align:center">🔍 搜索中...</div>';
 
-  // 先尝试后端
-  if(wsReady){
+  // 中文版: 优先后端 yt-dlp
+  if(_hasBackend&&wsReady){
     try{
       var r=await fetch('http://localhost:8801/music/search?q='+encodeURIComponent(q));
-      var data=await r.json();
-      if(data.songs&&data.songs.length>0){
-        renderSearchResults(data.songs,div);
-        return;
-      }
-    }catch(e){/* 后端不可用，降级到 iTunes */}
+      var d=await r.json();
+      if(d.songs&&d.songs.length>0){renderSearchResults(d.songs,div);return;}
+    }catch(e){}
   }
 
-  // 降级: iTunes Search API（公开免费，零后端）
+  // 所有版本: iTunes 公开 API（零后端）
   try{
     var r2=await fetch('https://itunes.apple.com/search?term='+encodeURIComponent(q)+'&media=music&limit=10');
     var d2=await r2.json();
@@ -507,13 +507,10 @@ async function searchMusic(){
     }
     var songs=d2.results.map(function(s){
       return {
-        id:s.trackId,
-        title:s.trackName,
-        url:s.previewUrl||s.trackViewUrl,
-        uploader:s.artistName,
+        id:s.trackId,title:s.trackName,
+        url:s.previewUrl||s.trackViewUrl,uploader:s.artistName,
         duration:s.trackTimeMillis?(Math.floor(s.trackTimeMillis/60000)+':'+Math.floor((s.trackTimeMillis%60000)/1000).toString().padStart(2,'0')):'',
-        artwork:s.artworkUrl100||'',
-        preview:!!s.previewUrl
+        artwork:s.artworkUrl100||'',preview:!!s.previewUrl
       };
     });
     renderSearchResults(songs,div);
