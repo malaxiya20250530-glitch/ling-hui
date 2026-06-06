@@ -369,13 +369,32 @@ audio.addEventListener('error',function(){
 });
 
 function scanMusic(){
+  // 内置曲库检测（零后端可用）
+  detectBuiltinSongs();
   if(wsReady){sendWS({type:'music_list'});return;}
   // 离线模式：尝试从本地存储恢复播放列表
   var saved=localStorage.getItem('lh_playlist');
   if(saved){
     try{playlist=JSON.parse(saved);renderList();return;}catch(e){}
   }
-  document.getElementById('nowPlay').textContent='🔌 离线 — 连接后端后扫描音乐';
+  if(playlist.length===0){
+    document.getElementById('nowPlay').textContent='📁 无音乐 — 上传文件或搜索歌曲';
+  }else{
+    renderList();
+  }
+}
+
+// 检测 APK 内置音乐文件
+function detectBuiltinSongs(){
+  var builtin=['SoundHelix-Song-8']; // APK 内置曲库列表
+  builtin.forEach(function(name,i){
+    var path='file:///android_asset/linghui/music/'+name+'.mp3';
+    // 避免重复
+    if(!playlist.find(function(s){return s.path===path})){
+      playlist.push({name:name,path:path,builtin:true});
+    }
+  });
+  renderList();
 }
 
 function renderList(){
@@ -395,6 +414,17 @@ function play(idx){
   if(idx<0||idx>=playlist.length)return;
   curIdx=idx;
   var s=playlist[idx];
+  // 内置音乐走原生 MediaPlayer（更可靠）
+  if(s.builtin&&s.path.indexOf('android_asset')>=0){
+    var name=s.name.replace('.mp3','').replace(/\.mp3$/,'');
+    if(window.LingHuiBridge&&typeof LingHuiBridge.playBuiltinMusic==='function'){
+      LingHuiBridge.playBuiltinMusic(name);
+    }
+    document.getElementById('nowPlay').textContent=s.name;
+    document.getElementById('playBtn').textContent='⏸';
+    renderList();
+    return;
+  }
   audio.src=s.path;
   audio.play().catch(function(){});
   document.getElementById('nowPlay').textContent=s.name;
@@ -402,14 +432,29 @@ function play(idx){
   renderList();
 }
 
+// 停止音乐（WebView 侧）
+function stopMusic(){
+  audio.pause();
+  audio.src='';
+  document.getElementById('playBtn').textContent='▶';
+  if(window.LingHuiBridge&&typeof LingHuiBridge.stopMusic==='function'){
+    LingHuiBridge.stopMusic();
+  }
+}
+
 function toggle(){
-  if(audio.paused){
+  if(audio.paused&&!audio.src){
+    if(curIdx<0&&playlist.length>0)play(0);
+    else audio.play().catch(function(){});
+    document.getElementById('playBtn').textContent='⏸';
+    return;
+  }
+  if(audio.paused||audio.ended){
     if(curIdx<0&&playlist.length>0)play(0);
     else audio.play().catch(function(){});
     document.getElementById('playBtn').textContent='⏸';
   }else{
-    audio.pause();
-    document.getElementById('playBtn').textContent='▶';
+    stopMusic();
   }
 }
 
@@ -433,30 +478,83 @@ function delSong(idx,ev){
   renderList();
 }
 
-// 全网搜歌
+// 全网搜歌 — 后端优先，不可用时用 iTunes 公开 API
 async function searchMusic(){
   var q=document.getElementById('searchIn').value.trim();
   if(!q)return;
   var div=document.getElementById('searchResults');
   div.innerHTML='<div style="color:#888;padding:10px;text-align:center">🔍 搜索中...</div>';
+
+  // 先尝试后端
+  if(wsReady){
+    try{
+      var r=await fetch('http://localhost:8801/music/search?q='+encodeURIComponent(q));
+      var data=await r.json();
+      if(data.songs&&data.songs.length>0){
+        renderSearchResults(data.songs,div);
+        return;
+      }
+    }catch(e){/* 后端不可用，降级到 iTunes */}
+  }
+
+  // 降级: iTunes Search API（公开免费，零后端）
   try{
-    var r=await fetch('http://localhost:8801/music/search?q='+encodeURIComponent(q));
-    var data=await r.json();
-    if(!data.songs||data.songs.length===0){
+    var r2=await fetch('https://itunes.apple.com/search?term='+encodeURIComponent(q)+'&media=music&limit=10');
+    var d2=await r2.json();
+    if(!d2.results||d2.results.length===0){
       div.innerHTML='<div style="color:#888;padding:10px;text-align:center">未找到结果</div>';
       return;
     }
-    var html='';
-    data.songs.forEach(function(s,i){
-      if(s.error)return;
-      html+='<div class=sResult onclick="dlFromSearch(''+s.url.replace(/'/g,"\'")+'',''+s.title.replace(/'/g,"\'")+'')">'
-        +'<div class=sThumb>🎵</div>'
-        +'<div class=sInfo><div class=sTitle>'+s.title+'</div><div class=sArtist>'+s.uploader+' · '+s.duration+'</div></div>'
-        +'<div class=sBtn>⬇</div></div>';
+    var songs=d2.results.map(function(s){
+      return {
+        id:s.trackId,
+        title:s.trackName,
+        url:s.previewUrl||s.trackViewUrl,
+        uploader:s.artistName,
+        duration:s.trackTimeMillis?(Math.floor(s.trackTimeMillis/60000)+':'+Math.floor((s.trackTimeMillis%60000)/1000).toString().padStart(2,'0')):'',
+        artwork:s.artworkUrl100||'',
+        preview:!!s.previewUrl
+      };
     });
-    div.innerHTML=html;
+    renderSearchResults(songs,div);
   }catch(e){
     div.innerHTML='<div style="color:#f44;padding:10px;text-align:center">搜索失败: '+e.message+'</div>';
+  }
+}
+
+function renderSearchResults(songs,div){
+  var html='';
+  songs.forEach(function(s,i){
+    if(s.error)return;
+    var iconHtml=s.artwork?'<img src="'+s.artwork+'" style="width:40px;height:40px;border-radius:6px;object-fit:cover">':'<div class=sThumb>🎵</div>';
+    var btnHtml=s.url&&s.url.startsWith('https://')&&s.preview!==false
+      ?'<div class=sBtn onclick="event.stopPropagation();previewSong(\''+s.url.replace(/'/g,"\\'")+'\',\''+(s.title||'').replace(/'/g,"\\'")+'\')">▶</div>'
+      :'<div class=sBtn style="color:#888">🔗</div>';
+    html+='<div class=sResult>'
+      +iconHtml
+      +'<div class=sInfo onclick="dlFromSearch(\''+(s.url||'').replace(/'/g,"\\'")+'\',\''+(s.title||'').replace(/'/g,"\\'")+'\')"><div class=sTitle>'+s.title+'</div><div class=sArtist>'+s.uploader+' · '+s.duration+'</div></div>'
+      +btnHtml+'</div>';
+  });
+  div.innerHTML=html;
+}
+
+// iTunes 试听 — 直接用预览 URL 播放
+function previewSong(url,title){
+  if(!url)return;
+  var a=document.getElementById('audioPlayer');
+  a.src=url;
+  a.play().catch(function(){});
+  document.getElementById('nowPlay').textContent='🔊 试听: '+title;
+  document.getElementById('playBtn').textContent='⏸';
+  // 添加到临时播放列表
+  var found=playlist.findIndex(function(s){return s.path===url});
+  if(found<0){
+    playlist.unshift({name:title||'试听',path:url,builtin:true});
+    curIdx=0;
+    renderList();
+  }else{
+    curIdx=found;
+    renderList();
   }
 }
 

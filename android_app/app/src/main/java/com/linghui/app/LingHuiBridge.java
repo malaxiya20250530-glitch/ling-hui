@@ -151,6 +151,25 @@ public class LingHuiBridge {
 
     // ═══ Toast ═══
 
+
+    // ═══ 内置音乐播放 ═══
+
+    @JavascriptInterface
+    public void playBuiltinMusic(String filename) {
+        try {
+            OverlayService svc = OverlayService.getInstance();
+            if (svc != null) svc.playBuiltinMusic(filename);
+        } catch (Exception e) { /* OverlayService 未运行 */ }
+    }
+
+    @JavascriptInterface
+    public void stopMusic() {
+        try {
+            OverlayService svc = OverlayService.getInstance();
+            if (svc != null) svc.stopMusic();
+        } catch (Exception e) { /* OverlayService 未运行 */ }
+    }
+
     @JavascriptInterface
     public void showToast(String text) {
         Toast.makeText(ctx, text, Toast.LENGTH_SHORT).show();

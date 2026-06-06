@@ -258,6 +258,53 @@ public class OverlayService extends Service {
         }
     }
 
+    /** 从 WebView JSBridge 调用 — 播放内置音乐 */
+    public void playBuiltinMusic(String filename) {
+        try {
+            if (mediaPlayer != null) {
+                mediaPlayer.stop();
+                mediaPlayer.reset();
+            } else {
+                mediaPlayer = new MediaPlayer();
+            }
+            android.content.res.AssetFileDescriptor afd = getAssets().openFd("linghui/music/" + filename + ".mp3");
+            mediaPlayer.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
+            afd.close();
+            mediaPlayer.prepare();
+            mediaPlayer.start();
+            mediaPlayer.setLooping(false);
+            mediaPlayer.setOnCompletionListener(mp -> {
+                musicPlaying = false;
+                btnMusic.setText(getString(R.string.btn_music));
+                stopVisualizer();
+            });
+            mediaPlayerPrepared = true;
+            musicPlaying = true;
+            btnMusic.setText(getString(R.string.btn_pause));
+            if (equalizer == null) {
+                try {
+                    equalizer = new Equalizer(0, mediaPlayer.getAudioSessionId());
+                    equalizer.setEnabled(true);
+                } catch (Exception e) {}
+            }
+            startVisualizer();
+            showBubble("\uD83C\uDFB5 " + filename);
+        } catch (Exception e) {
+            Log.w(TAG, "playBuiltinMusic 失败: " + e.getMessage());
+        }
+    }
+
+    /** 停止音乐 */
+    public void stopMusic() {
+        if (mediaPlayer != null && musicPlaying) {
+            if (equalizer != null) try { equalizer.setEnabled(false); } catch (Exception e) {}
+            mediaPlayer.stop();
+            musicPlaying = false;
+            btnMusic.setText(getString(R.string.btn_music));
+            stopVisualizer();
+        }
+    }
+
     // ═══ 悬浮窗初始化 ═══
     private void initOverlay() {
         DisplayMetrics metrics = new DisplayMetrics();
